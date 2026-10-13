@@ -1271,6 +1271,75 @@ const isHousekeeping = l => (l.kind ? (l.kind === "writeoff") : HOUSEKEEPING.tes
    Leave Entitled / Yr" jump by the carried amount every January. */
 const isEntitlement = l => (l.kind ? (l.kind === "grant" || l.kind === "adjust")
                                    : !(isLeaveEntry(l) || isHousekeeping(l)));
+/* ---- Days that are already gone but not yet written down -------------------------
+   Forfeiting an expired day happens in two steps that are NOT simultaneous: the date
+   passes, and then the nightly job writes the write-off entry. Between the two, the
+   ledger still holds the days with nothing cancelling them.
+
+   leave_balances therefore subtracts them itself -- deliberately, so the balance is
+   right even if the nightly job never runs again. bal() did not, so every screen that
+   reads the ledger directly (the employee's own, and all of HR's) advertised days the
+   database would refuse: 14 entitled + 5 carried with the expiry gone by read
+   "Annual Leave 14 · 0 · 19", the carry correctly 0 and its dead days re-attributed to
+   this year. The approver, who reads the server figure, was told 14 all along.
+
+   These mirror due_unwritten_carry() and due_unwritten_oil() deliberately closely. The
+   point of the number is to agree with the database that refuses the application, so
+   where the SQL makes a choice that looks odd, the same choice is made here rather than
+   a better-but-different one. */
+function dueUnwrittenCarry(empId) {
+  if (!db.orgV16) return 0;
+  const rec = carryRecord(empId);
+  if (!rec || rec.expired_at) return 0;                      // already written off
+  const on = rec.expires_on ? String(rec.expires_on) : null;
+  // Strictly BEFORE today, like the SQL: carried days survive their expiry day itself.
+  // Off-in-lieu below dies ON the day. That difference is deliberate (t36/t37) and is
+  // not something to tidy up here -- it decides when real people lose real days.
+  if (!on || on >= todayStr()) return 0;
+  const year = Number(rec.year) || new Date().getFullYear();
+  const from = year + "-01-01";
+  // annual_used_between(): APPROVED APPLICATIONS by start date, not the ledger. Mirrored
+  // as-is. Reading the ledger here would be the more consistent rule and would produce a
+  // THIRD answer; if that rule should change it changes in SQL, for both sides at once.
+  let used = 0;
+  for (const a of db.applications)
+    if (a.empId === empId && a.type === "annual" && a.status === "approved"
+        && a.start >= from && a.start <= on) used += Number(a.days) || 0;
+  return Math.max(0, (Number(rec.carry_in) || 0) - used);
+}
+/* The most recent time the off-in-lieu day-and-month has come round -- this year's if it
+   has passed, otherwise last year's. oilExpiryOn() answers the opposite question (the
+   NEXT one, which is what somebody needs in order to use the days in time). */
+function oilLastCutoff() {
+  const o = db.org || {};
+  if (!db.orgV36 || o.oilExpiryMonth == null || o.oilExpiryDay == null) return null;
+  const m = Number(o.oilExpiryMonth), d = Number(o.oilExpiryDay);
+  const today = new Date().toISOString().slice(0, 10);
+  const y = new Date().getFullYear();
+  return mdOn(y, m, d) <= today ? mdOn(y, m, d) : mdOn(y - 1, m, d);
+}
+function dueUnwrittenOil(empId) {
+  const on = oilLastCutoff();
+  if (!on) return 0;                                         // no date set = never expires
+  // oil_balance_asof(): what was in hand on the cut-off. A credit counts by the day it
+  // was credited; leave taken or refunded counts by the LEAVE date, because December
+  // off-in-lieu keyed in January must not be forfeited a second time.
+  //
+  // Self-cancelling once the job has run: the write-off entry is dated the cut-off day
+  // itself, so it falls inside this same sum and brings it to 0. That is why there is no
+  // "has it been written yet" test here, and why it cannot subtract twice.
+  let sum = 0;
+  for (const l of db.ledger) {
+    if (l.empId !== empId || l.type !== "oil") continue;
+    let eff = iso(new Date(l.ts));
+    if (isLeaveEntry(l)) {
+      const a = db.applications.find(x => x.id === l.refApp);
+      if (a) eff = a.start;
+    }
+    if (eff <= on) sum += l.delta;
+  }
+  return Math.max(0, sum);
+}
 function bal(empId, code) {
   const key = empId + "|" + code;
   // Approvers see only a precomputed available-days number for applicants (RLS
@@ -1288,9 +1357,13 @@ function bal(empId, code) {
   }
   let pending = 0;
   for (const a of db.applications) if (a.empId === empId && a.type === code && a.status === "pending") pending += a.days;
-  // avail is deliberately still the WHOLE ledger: it is what you may book, and last
-  // year's carried days are real days you may book.
-  return { granted, used, pending, avail: granted - used - pending, yGranted, yUsed };
+  // avail is the whole ledger -- last year's carried days are real days you may book --
+  // MINUS days whose expiry has passed and whose write-off entry has not been written
+  // yet. Those are not bookable: the database already withholds them, and submitting
+  // would be refused. See dueUnwrittenCarry/dueUnwrittenOil above.
+  const gone = code === "annual" ? dueUnwrittenCarry(empId)
+             : code === "oil"    ? dueUnwrittenOil(empId) : 0;
+  return { granted, used, pending, avail: granted - used - pending - gone, yGranted, yUsed };
 }
 function eligible(t, e) { return !t.gender || t.gender === e.gender; }
 
@@ -1821,17 +1894,39 @@ function carryExpired(empId) {
    already gone, so what is left can only die on the next one.
 
    29 February is clamped to the 28th in a non-leap year, the same as the database does. */
+/* A day-and-month as a date in a given year. 29 February is clamped to the 28th in a
+   non-leap year, the same as the database does. One copy, used by both expiry dates and
+   by oilLastCutoff() -- three divergent copies of a date rule is how the calendar once
+   drifted out of step with the balance. */
+function mdOn(y, m, d) {
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();     // day 0 of next month = last of this
+  return y + "-" + String(m).padStart(2, "0") + "-" + String(Math.min(d, last)).padStart(2, "0");
+}
+function nextOccurrence(m, d) {
+  const today = new Date().toISOString().slice(0, 10);
+  const y = new Date().getFullYear();
+  return mdOn(y, m, d) >= today ? mdOn(y, m, d) : mdOn(y + 1, m, d);   // on the day itself, today
+}
 function oilExpiryOn() {
   const o = db.org || {};
   if (!db.orgV36 || o.oilExpiryMonth == null || o.oilExpiryDay == null) return null;
-  const m = Number(o.oilExpiryMonth), d = Number(o.oilExpiryDay);
-  const today = new Date().toISOString().slice(0, 10);
-  const mk = y => {
-    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();   // day 0 of next month = last of this
-    return y + "-" + String(m).padStart(2, "0") + "-" + String(Math.min(d, last)).padStart(2, "0");
-  };
-  const y = new Date().getFullYear();
-  return mk(y) >= today ? mk(y) : mk(y + 1);      // on the day itself, it is today
+  return nextOccurrence(Number(o.oilExpiryMonth), Number(o.oilExpiryDay));
+}
+/* When carried days die, for somebody who has none yet.
+   A person who HAS carried days has a date stored against them, written at year start
+   from the setting as it stood then -- and that stored date is what expire_due_carry()
+   acts on, so that is the one their screens show. Changing the company setting afterwards
+   does not move days already carried, and the screen must not pretend it does.
+   A person with NO carry row has no stored date, and the line read "Expiry Date: N/A",
+   which states that carried days never expire -- the opposite of the truth in a company
+   that has set a date. Every employee of a company whose staff all joined this year is in
+   that position, which is why it was the first thing visible on the Apply tab. So fall
+   back to the company setting, derived on every render exactly as off-in-lieu is, with no
+   stored copy that can go stale. N/A now means only what it says: no date is set. */
+function carryExpiryOn() {
+  const o = db.org || {};
+  if (!db.orgV24 || o.carryExpiryMonth == null || o.carryExpiryDay == null) return null;
+  return nextOccurrence(Number(o.carryExpiryMonth), Number(o.carryExpiryDay));
 }
 function oilExpiryNote() {
   if (!db.orgV36) return "";
@@ -1862,7 +1957,10 @@ function carryLine(empId, code, b) {
   const s = annualSplit(empId, b);
   const c = carryRecord(empId) || {};
   const gone = carryExpired(empId);
-  const exp = c.expires_on ? fmtDateY(c.expires_on) : "N/A";
+  // The date stored against this person if they have carried days; otherwise the
+  // company's recurring date. See carryExpiryOn().
+  const on = c.expires_on ? String(c.expires_on) : carryExpiryOn();
+  const exp = on ? fmtDateY(on) : "N/A";
   return `Annual Leave: ${fmtD(s.own)} · Carry Forward: ${fmtD(s.carry)} `
        + `(${gone ? `Expired ${exp} — those days are gone` : `Expiry Date: ${exp}`}) · `;
 }
@@ -2051,8 +2149,9 @@ function carryRow() {
   // Say it out loud when the days are gone. A Left of 0 next to "Expiry Date: 30 Jun
   // 2026" reads as "I have none left", which invites the wrong question to HR; the
   // Apply screen has said "Expired" since v38 and this line should not disagree with it.
-  const expiry = c.expires_on ? fmtDateY(c.expires_on) : "N/A";
-  const note = !c.expires_on ? "Expiry Date: N/A"
+  const on = c.expires_on ? String(c.expires_on) : carryExpiryOn();
+  const expiry = on ? fmtDateY(on) : "N/A";
+  const note = !on ? "Expiry Date: N/A"
              : carryExpired(me.id) ? `Expired ${expiry} — those days are gone`
              : `Expiry Date: ${expiry}`;
   return `<tr>
