@@ -2879,8 +2879,12 @@ function hrTypes() {
       <td style="text-align:center"><input type="checkbox" data-act="typehalf" data-c="${t.code}" ${tPick(t, "half") ? "checked" : ""}></td>
       <td style="text-align:center"><input type="checkbox" data-act="typeattach" data-c="${t.code}" ${tPick(t, "mc") ? "checked" : ""}></td>
       <td>${t.gender ? (t.gender === "F" ? "Female" : "Male") : "All"}</td>
-      <td><button class="btn sec" style="padding:4px 10px" data-act="ltedit" data-c="${t.code}">Edit</button>
-        <button class="btn ghost" style="padding:4px 10px" data-act="ltdel" data-c="${t.code}">Delete</button></td></tr>`).join("")}</tbody></table></div>
+      ${""/* nowrap: without it the two buttons do not fit the column the browser gives this
+            cell once the notes make the other columns wide, and they stack one above the
+            other. An auto-layout table honours a nowrap cell's minimum width and takes the
+            room out of the text columns instead, which is what should happen here. */}
+      <td style="white-space:nowrap"><button class="btn sec" style="padding:4px 10px;border:1px solid transparent;vertical-align:middle" data-act="ltedit" data-c="${t.code}">Edit</button>
+        <button class="btn ghost" style="padding:4px 10px;margin-left:6px;vertical-align:middle" data-act="ltdel" data-c="${t.code}">Delete</button></td></tr>`).join("")}</tbody></table></div>
     <p class="meta" style="margin-top:14px">Public holidays are managed in the <b>Company settings</b> tab.</p>
   </div>`;
 }
