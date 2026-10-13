@@ -2579,8 +2579,8 @@ function detailModal(id) {
 /* ---- HR Console ---- */
 function vHR() {
   const tabs = db.orgV18
-    ? [["records", "All records"], ["balances", "Balances"], ["employees", "Employees & approval routes"], ["types", "Leave types"], ["apply", "Leave Application"], ["amend", "Amendment records"], ["settings", "Company settings"]]
-    : [["records", "All records"], ["balances", "Balances"], ["employees", "Employees & approval routes"], ["types", "Leave types"], ["ledger", "Balance adjustments"], ["settings", "Company settings"]];
+    ? [["records", "All records"], ["balances", "Balances"], ["employees", "Employee Setting"], ["types", "Leave types"], ["apply", "Leave Application"], ["amend", "Amendment records"], ["settings", "Company settings"]]
+    : [["records", "All records"], ["balances", "Balances"], ["employees", "Employee Setting"], ["types", "Leave types"], ["ledger", "Balance adjustments"], ["settings", "Company settings"]];
   if (!tabs.some(t => t[0] === hrTab)) hrTab = "records";
   return `<h2>HR Console</h2><p class="sub">Company-wide records, balances, approval routing and balance adjustments</p>
     <div class="tabs">${tabs.map(([k, l]) => `<button data-act="hrtab" data-t="${k}" class="${hrTab === k ? "on" : ""}">${l}${k === "settings" && phMissingYear() ? " ⚠️" : ""}</button>`).join("")}</div>
@@ -2879,7 +2879,8 @@ function hrTypes() {
       <td style="text-align:center"><input type="checkbox" data-act="typehalf" data-c="${t.code}" ${tPick(t, "half") ? "checked" : ""}></td>
       <td style="text-align:center"><input type="checkbox" data-act="typeattach" data-c="${t.code}" ${tPick(t, "mc") ? "checked" : ""}></td>
       <td>${t.gender ? (t.gender === "F" ? "Female" : "Male") : "All"}</td>
-      <td><button class="btn sec" style="padding:4px 10px" data-act="ltedit" data-c="${t.code}">Edit</button></td></tr>`).join("")}</tbody></table></div>
+      <td><button class="btn sec" style="padding:4px 10px" data-act="ltedit" data-c="${t.code}">Edit</button>
+        <button class="btn ghost" style="padding:4px 10px" data-act="ltdel" data-c="${t.code}">Delete</button></td></tr>`).join("")}</tbody></table></div>
     <p class="meta" style="margin-top:14px">Public holidays are managed in the <b>Company settings</b> tab.</p>
   </div>`;
 }
@@ -2918,7 +2919,7 @@ function ltModal() {
         </span>
         <span class="meta" style="white-space:nowrap">day(s) to everyone</span>
       </div>
-      <span class="hint">This AL changes will apply to all employees. To add only specific employee go to Employees & approval routes, edit. (Eg. If company wish to grant all employee 1 day annual leave at next year, type in 1 (if deduct, type -1) and click save changes. The one day will immidiately credited into all employee balance)</span></div>` : ""}
+      <span class="hint">This AL changes will apply to all employees. To add only specific employee go to Employee Setting, edit. (Eg. If company wish to grant all employee 1 day annual leave at next year, type in 1 (if deduct, type -1) and click save changes. The one day will immidiately credited into all employee balance)</span></div>` : ""}
     <label class="check" style="margin:4px 0"><input type="checkbox" id="lt-deduct" ${m.deduct ? "checked" : ""}> Deducts from a yearly balance (uncheck for record-only types like Training)</label>
     <label class="check" style="margin:4px 0"><input type="checkbox" id="lt-attach" ${m.attach ? "checked" : ""}> Attachment required when applying</label>
     <label class="check" style="margin:4px 0"><input type="checkbox" id="lt-half" ${m.half ? "checked" : ""}> Half-day (AM/PM) allowed</label>
@@ -3675,6 +3676,47 @@ async function runAction(el) {
       break;
     }
     case "deptcancel": delete vp.teamConfirm; vp.teamsOpen = true; rerender(); break;
+    /* Deleting a leave type. There was no way to do this at all: a type added by mistake
+       stayed on everyone's Apply dropdown for good. HR has always had the database
+       permission -- the tab simply never offered it.
+
+       Offered on every row, with the refusal explaining itself, for the same reason the
+       team list does it that way: a row with no button leaves you hunting for one. */
+    case "ltdel": {
+      const t = lt(el.dataset.c);
+      if (!t) break;
+      // Two codes the system itself is built on. Everything else is the company's choice.
+      if (t.code === "annual") return toast("“" + t.en + "” cannot be deleted — carry-forward, the year-start run and the balance rules are all built on it.");
+      if (t.code === "oil") return toast("“" + t.en + "” cannot be deleted — crediting overtime and the off-in-lieu expiry are built on it.");
+      // A type with history cannot go without taking the history with it. The foreign key
+      // would refuse the delete anyway; this says so in advance, and in English.
+      const apps = db.applications.filter(a => a.type === t.code).length;
+      const led  = db.ledger.filter(l => l.type === t.code).length;
+      if (apps || led) return toast("“" + t.en + "” has been used — "
+        + (apps ? apps + " application" + (apps === 1 ? "" : "s") : "")
+        + (apps && led ? " and " : "")
+        + (led ? led + " balance entr" + (led === 1 ? "y" : "ies") : "")
+        + ". Deleting it would erase that record, so it stays. Set its days to 0 if you no longer want it granted.");
+      vp.confirmModal = {
+        title: "Delete this leave type?",
+        lines: ["“<b>" + esc(t.en) + "</b>” will be removed from the Apply dropdown and from everybody's balances.",
+                "Nobody has ever applied for it and it holds no balance entries, so no record is lost."],
+        okLabel: "Delete leave type", cancelLabel: "Cancel", act: "ltdelgo", id: t.code
+      };
+      rerender(); break;
+    }
+    case "ltdelgo": {
+      if (!id) break;
+      const name = (lt(id) || {}).en || id;
+      const { error } = await sb.from("leave_types").delete().eq("code", id);
+      // Belt and braces: if something was written between the check and here, the foreign
+      // key refuses and the raw message names a constraint, not a leave type.
+      if (error) return /foreign key|violates/i.test(error.message || "")
+        ? toast("“" + name + "” has just been used by somebody — it can no longer be deleted.")
+        : rpcErr(error);
+      await reload(); toast("Leave type “" + name + "” deleted");
+      break;
+    }
     case "deptdel": {
       const name = el.dataset.name;
       // Every row offers Delete now, so the refusal has to say what is in the way and what
