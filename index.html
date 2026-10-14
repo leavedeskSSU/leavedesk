@@ -893,7 +893,15 @@ function origType(t, k) { return k === "days" ? Number(t.days) : k === "half" ? 
 function setType(code, k, v) {
   const t = lt(code); if (!t) return stageType(code, k, v);
   const d = ensureDraft();
-  if (origType(t, k) === v) {   // back to the saved value → drop it from the draft
+  /* "days" is never dropped, even when it matches what the type already says.
+     The other two settings are plain columns, so typing the saved value back really is
+     nothing to do. Days are not: the figure on the type and the days people actually HOLD
+     can disagree, and when they do, retyping the figure is the only way to put it right.
+     Reported: "i type 1 but still not working" -- Earth Day's setting said 1 while every
+     balance said 0, so this dropped the edit, the save had nothing to send, and nothing
+     happened at all. Saving reconciles instead; amend_leave_type_days() writes only for
+     the people who are actually short, so applying an unchanged figure costs nothing. */
+  if (k !== "days" && origType(t, k) === v) {   // back to the saved value → drop it
     if (d.types[code]) { delete d.types[code][k]; if (!Object.keys(d.types[code]).length) delete d.types[code]; }
   } else stageType(code, k, v);
 }
@@ -3900,8 +3908,16 @@ async function runAction(el) {
       // updated the label and reached nobody. Annual and off-in-lieu never carry a
       // company-wide figure, so they are left out entirely.
       const daysHere = numOr(document.getElementById("lt-days")?.value, 0);
+      /* Two different questions, and conflating them is what made "i type 1 but still not
+         working" true. `creditsDays` asks whether this save has to reach people at all --
+         which it does whenever the type grants days, changed figure or not, because the
+         setting and the balances can disagree. `daysChanged` asks whether the COMPANY
+         FIGURE moved, which is the only thing worth stopping to confirm. Before, an
+         unchanged figure skipped the credit entirely and wrote a plain column update, so
+         a type whose days had never reached anybody could not be repaired from here. */
       const creditsDays = !!(db.orgV18 && t0 && !t0.noDeduct &&
-        t0.code !== "annual" && t0.code !== "oil" && Number(t0.days) !== daysHere);
+        t0.code !== "annual" && t0.code !== "oil");
+      const daysChanged = !!(t0 && Number(t0.days) !== daysHere);
       const payload = {
         name_en: name,
         default_days: daysHere,
@@ -3939,9 +3955,12 @@ async function runAction(el) {
         };
         rerender(); break;
       }
+      let broughtUp = 0;
       if (m.code && creditsDays) {
-        // Ask before it reaches everyone's balance, in the same words the tab uses.
-        if (!vp.ltDaysOk) {
+        // Ask before it reaches everyone's balance, in the same words the tab uses -- but
+        // only when the COMPANY FIGURE is actually moving. An unchanged figure has nothing
+        // to confirm: it reconciles whoever is short and leaves everybody else alone.
+        if (daysChanged && !vp.ltDaysOk) {
           const n = activeEmps().filter(e => eligible(t0, e)).length, d = daysHere - Number(t0.days);
           // Keep what was typed, so Cancel returns you to your edit rather than silently
           // rewinding the box to the old figure.
@@ -3959,8 +3978,9 @@ async function runAction(el) {
           rerender(); break;
         }
         delete vp.ltDaysOk;
-        const { error: de } = await sb.rpc("amend_leave_type_days", { p_code: m.code, p_days: daysHere });
+        const { data: ad, error: de } = await sb.rpc("amend_leave_type_days", { p_code: m.code, p_days: daysHere });
         if (de) return rpcErr(de);
+        if (!daysChanged) broughtUp = (ad || {}).affected || 0;
         delete payload.default_days;   // the function above already wrote it
       }
       let newlyCredited = 0;
@@ -4018,7 +4038,10 @@ async function runAction(el) {
         rerender(); break;
       }
       delete vp.ltModal; delete vp.albump; delete vp.ltBumpOk; await reload();
-      toast(m.code ? "Leave type saved."
+      toast(m.code ? (broughtUp ? "Leave type saved — " + broughtUp + " employee"
+                       + (broughtUp === 1 ? "" : "s") + " brought up to " + fmtD(daysHere)
+                       + " day" + (daysHere === 1 ? "" : "s") + "."
+                     : "Leave type saved.")
             : newlyCredited ? "Leave type added — " + fmtD(Number(payload.default_days)) + " day"
                 + (Number(payload.default_days) === 1 ? "" : "s") + " credited to " + newlyCredited
                 + " employee" + (newlyCredited === 1 ? "" : "s") + "."
