@@ -2775,9 +2775,9 @@ function empModal() {
     ${(!isAdd && !adminLocked && f.hasLogin === false) ? `<div class="callout warn" style="margin:0 0 12px">This person has no sign-in account yet. <button class="btn" style="margin-left:8px;padding:6px 12px" data-act="createlogin" data-id="${m.id}" data-email="${esc(f.email)}">Create login</button></div>` : ""}
     ${(!isAdd && !adminLocked && f.hasLogin !== false) ? `<div class="callout" style="margin:0 0 12px">Forgot their password? Reset it to the default (<b>Ssu123@</b>). <button class="btn sec" style="margin-left:8px;padding:6px 12px" data-act="resetpw" data-id="${m.id}" data-email="${esc(f.email)}">Reset password</button></div>` : ""}
     <div class="frow">
-      <div class="field"><label>Employee No.</label><input type="text" data-f="em.empNo" value="${esc(f.empNo || "")}" placeholder="e.g. 00816"></div>
+      <div class="field"><label>Employee No.</label><input type="text" data-f="em.empNo" value="${esc(f.empNo || "")}" placeholder="e.g. 486213"></div>
       <div class="field"><label>Alias</label><input type="text" data-f="em.alias" value="${esc(f.alias || "")}" placeholder="preferred name"></div>
-      <div class="field"><label>Mobile</label><input type="text" data-f="em.mobile" value="${esc(f.mobile || "")}" placeholder="e.g. 9885 7721"></div>
+      <div class="field"><label>Mobile</label><input type="text" data-f="em.mobile" value="${esc(f.mobile || "")}" placeholder="e.g. 3838 9900"></div>
     </div>
     <div class="frow">
       <div class="field"><label>Gender<span class="req">*</span></label><select data-f="em.gender">
@@ -3963,6 +3963,7 @@ async function runAction(el) {
         if (de) return rpcErr(de);
         delete payload.default_days;   // the function above already wrote it
       }
+      let newlyCredited = 0;
       if (m.code) {
         const { error } = await sb.from("leave_types").update(payload).eq("code", m.code);
         if (error) return rpcErr(error);
@@ -3971,8 +3972,38 @@ async function runAction(el) {
         let code = base, i = 1;
         while (db.leaveTypes.some(t => t.code === code)) code = base + "_" + (++i);
         const maxSort = Math.max(0, ...db.leaveTypes.map(t => t.sort || 0));
-        const { error } = await sb.from("leave_types").insert({ code, name_zh: "", sort: maxSort + 1, ...payload });
+        /* Inserted at ZERO days, then amended to the real figure, when there is one to
+           credit. Inserting it at its full figure and then amending would leave
+           amend_leave_type_days computing diff = 0 against itself, so the Amendment record
+           would read "Earth Day +0 days" while every employee was quietly credited 1. The
+           days must arrive the same way they do for any other change: as a stated
+           amendment of the right size. */
+        const creditOnAdd = !payload.no_deduct && Number(payload.default_days) > 0;
+        const { error } = await sb.from("leave_types").insert({ code, name_zh: "", sort: maxSort + 1,
+          ...payload, ...(creditOnAdd ? { default_days: 0 } : {}) });
         if (error) return rpcErr(error);
+        /* The insert creates the ROW. It does not give anybody the days.
+           Reported: "i tried to add a new leave call earth day and set 1 day per year,
+           after i create i didnt see it give all employee a day ... it still shows zero."
+           Editing a type has always credited everyone through amend_leave_type_days;
+           adding one never called it, so a new type sat at 0 for the whole company until
+           HR went back in and retyped the figure, which then took the edit path.
+
+           Same function, so a type that is added with 3 days and a type that is edited to
+           3 days end up in exactly the same state -- one grant row each, tagged to this
+           leave year, which is what stops the year-start run granting it a second time.
+           It credits only the people the type applies to (it filters on gender itself),
+           and record-only types return without crediting anyone, which is right: they
+           have no balance to credit. */
+        if (creditOnAdd) {
+          const { data: cd, error: ce } = await sb.rpc("amend_leave_type_days",
+            { p_code: code, p_days: Number(payload.default_days) });
+          // If this fails the type exists at 0 days: visible, and fixed by retyping the
+          // figure, which takes the ordinary edit path. Better than a type that claims
+          // days nobody holds.
+          if (ce) return rpcErr(ce);
+          newlyCredited = (cd || {}).affected || 0;
+        }
       }
       if (bump) {
         const { data, error: be } = await sb.rpc("bump_annual_all", { p_days: bump });
@@ -3987,7 +4018,11 @@ async function runAction(el) {
         rerender(); break;
       }
       delete vp.ltModal; delete vp.albump; delete vp.ltBumpOk; await reload();
-      toast(m.code ? "Leave type saved." : "Leave type added.");
+      toast(m.code ? "Leave type saved."
+            : newlyCredited ? "Leave type added — " + fmtD(Number(payload.default_days)) + " day"
+                + (Number(payload.default_days) === 1 ? "" : "s") + " credited to " + newlyCredited
+                + " employee" + (newlyCredited === 1 ? "" : "s") + "."
+            : "Leave type added.");
       break;
     }
 
