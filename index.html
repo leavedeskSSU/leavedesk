@@ -890,18 +890,16 @@ function stageType(code, k, v) { const d = ensureDraft(); d.types[code] = Object
 // The value as it currently stands in the database — lets us tell a real edit
 // from a change-and-change-back, which should leave nothing to save.
 function origType(t, k) { return k === "days" ? Number(t.days) : k === "half" ? !!t.allowHalf : !!t.mc; }
+/* Only "half" and "mc" reach this now: the days column on the Leave types tab is a
+   figure, not a box, and the days are set in Edit alone. Both of these are plain
+   columns, so typing the saved value back really is nothing to do -- which is why the
+   unchanged value is dropped from the draft here. Days could not be treated that way,
+   because the figure on the type and the days people actually HOLD can disagree; that
+   is what Edit's save reconciles, and it is the reason this is no longer two doors. */
 function setType(code, k, v) {
   const t = lt(code); if (!t) return stageType(code, k, v);
   const d = ensureDraft();
-  /* "days" is never dropped, even when it matches what the type already says.
-     The other two settings are plain columns, so typing the saved value back really is
-     nothing to do. Days are not: the figure on the type and the days people actually HOLD
-     can disagree, and when they do, retyping the figure is the only way to put it right.
-     Reported: "i type 1 but still not working" -- Earth Day's setting said 1 while every
-     balance said 0, so this dropped the edit, the save had nothing to send, and nothing
-     happened at all. Saving reconciles instead; amend_leave_type_days() writes only for
-     the people who are actually short, so applying an unchanged figure costs nothing. */
-  if (k !== "days" && origType(t, k) === v) {   // back to the saved value → drop it
+  if (origType(t, k) === v) {   // back to the saved value → drop it from the draft
     if (d.types[code]) { delete d.types[code][k]; if (!Object.keys(d.types[code]).length) delete d.types[code]; }
   } else stageType(code, k, v);
 }
@@ -2872,7 +2870,7 @@ function offModal() {
 }
 function hrTypes() {
   return `<div class="card">
-    <div class="callout acc" style="margin-bottom:14px">Leave types are yours to configure. Add a type, set its yearly amount, whether it needs an attachment, whether half-days are allowed, and who's eligible. This tab will changes the total leave for all employee in one go. (Eg, if you change Sick Leave from 14 to 15, all employee will have 15 day in total. Please note that it is not applicable for AL and OIL.)</div>
+    <div class="callout acc" style="margin-bottom:14px">Leave types are yours to configure. Tick here whether a type needs an attachment or allows half-days; use <b>Edit</b> to set its yearly amount and who's eligible. Changing that amount changes the total leave for all employee in one go. (Eg, if you change Sick Leave from 14 to 15, all employee will have 15 day in total. Please note that it is not applicable for AL and OIL.)</div>
     <div class="frow" style="margin-bottom:12px"><button class="btn" data-act="ltadd">+ Add leave type</button></div>
     <div class="tablebox"><table><thead><tr><th>Type</th><th class="num">Default days / year</th><th>Deducts balance?</th>
       <th style="text-align:center">Half-day allowed?${db.ltHalf ? colToggle("half") : ""}</th>
@@ -2882,7 +2880,7 @@ function hrTypes() {
       <td><b>${esc(t.en)}</b>${t.note ? `<div class="meta">${esc(t.note)}</div>` : ""}</td>
       <td class="num">${db.orgV18 && (t.code === "annual" || t.code === "oil")
         ? `<span class="meta" title="${t.code === "annual" ? "Set per employee in Edit employee" : "Earned by working overtime — credited per employee in Edit employee"}">—<div class="meta" style="font-size:11.5px">${t.code === "annual" ? "per employee" : "earned, not granted"}</div></span>`
-        : `<input type="number" step="0.5" min="0" value="${tPick(t, "days")}" style="width:84px" data-act="typedays" data-c="${t.code}">`}</td>
+        : `<b>${fmtD(Number(t.days) || 0)}</b>`}</td>
       <td style="text-align:center">${t.noDeduct ? "No" : "Yes"}</td>
       <td style="text-align:center"><input type="checkbox" data-act="typehalf" data-c="${t.code}" ${tPick(t, "half") ? "checked" : ""}></td>
       <td style="text-align:center"><input type="checkbox" data-act="typeattach" data-c="${t.code}" ${tPick(t, "mc") ? "checked" : ""}></td>
@@ -4415,7 +4413,6 @@ document.addEventListener("change", async ev => {
     if (k === "half" && !db.ltHalf) { el.checked = !el.checked; return toast("Please run the latest database update (migration v8) first to use half-day settings."); }
     setAllTypes(k, el.checked); rerender(); return;
   }
-  if (el.dataset.act === "typedays") { setType(el.dataset.c, "days", numOr(el.value, 0)); rerender(); return; }
   if (el.dataset.act === "typehalf") {
     if (!db.ltHalf) { el.checked = !el.checked; return toast("Please run the latest database update (migration v8) first to use half-day settings."); }
     setType(el.dataset.c, "half", el.checked); rerender(); return;
