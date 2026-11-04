@@ -154,6 +154,8 @@ td.num{font-variant-numeric:tabular-nums}
 .yslede{font-size:13px;color:var(--muted);margin:3px 0 2px;line-height:1.5}
 .ysec{font-weight:700;font-size:13px;letter-spacing:.03em;color:var(--ink);margin:16px 0 8px}
 .ystiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:10px}
+select.ysyears{padding:0;height:auto;overflow-y:auto}
+select.ysyears option{padding:5px 9px;font-variant-numeric:tabular-nums}
 .yswarn{background:var(--bg);border:1px solid var(--bad);border-radius:var(--r);padding:11px 14px;margin:0 0 12px;font-size:13px}
 .yswarn ul{margin:6px 0 0;padding-left:18px;line-height:1.7}
 .yswarn .yssub{margin-top:7px}
@@ -2058,17 +2060,20 @@ function ysWhatItDoes(d, rows, gy, done) {
     <b>Off-in-Lieu is not touched</b>. Recorded in <b>Amendment records</b>.
     ${done ? "" : "<b>Cannot be undone from the app.</b>"}</p>`;
 }
-/* This year and the two after it. It used to run from LAST year to PH_MAX, which is
-   2500 — 476 options in a dropdown where exactly one is ever wanted. Starting a year is
-   something you do at the turn of the year, so the useful choices are this one (if it was
-   never started), the next one (the normal case) and one spare.
-
-   Last year is deliberately NOT offered any more: starting a year that has already run
-   is refused by the database anyway, and offering it only invites the attempt. */
+/* The list still SCROLLS — it is only three rows TALL.
+   It used to run from last year to PH_MAX = 2500: 476 rows of dropdown. Asked to make it
+   "show 2026, 2027, 2028, no need to show that long", I cut the list to three options,
+   which took away the choice instead of the scrolling. The ask was about height, not
+   about range: "you shouldnt remove the scrolling function, just keep showing it, only
+   you display 3 years".
+   So the box is three rows high (size=3 on the select) and scrolls through the years
+   either side, with the current year selected and scrolled to. */
+const YS_YEARS_BACK = 1, YS_YEARS_FWD = 10;
 function ysYearOptions(y, gy) {
-  const years = [y, y + 1, y + 2];
-  // If HR somehow has a year selected outside that range, keep it in the list rather than
-  // silently switching their choice underneath them.
+  const years = [];
+  for (let n = y - YS_YEARS_BACK; n <= y + YS_YEARS_FWD; n++) years.push(n);
+  // A year selected outside that span stays in the list rather than being switched
+  // underneath HR.
   if (gy && !years.includes(gy)) years.unshift(gy);
   return years.map(yy =>
     `<option value="${yy}" ${yy === gy ? "selected" : ""}>${yy}</option>`).join("");
@@ -3244,14 +3249,14 @@ function hrSettings() {
     </ol>
     <p class="meta" style="margin:0 0 12px">Off-in-lieu is never touched — those days were earned by working. <b>Safe to press twice:</b> anyone already done for that year is skipped.</p>
     <div class="field" style="max-width:150px"><label>Target year</label>
-      <select data-act="grantyear">${ysYearOptions(y, gy)}</select></div>
+      <select data-act="grantyear" size="3" class="ysyears">${ysYearOptions(y, gy)}</select></div>
     ${vp.ysPreview ? ysPreviewBox(gy) : `<div class="actions"><button class="btn sec" data-act="yspreview">Start ${gy}…</button>
       <button class="btn ghost" data-act="yslogopen">📋 Past runs</button></div>`}
     ${vp.ysLog ? ysLogBox() : ""}`
     : `<p class="meta" style="margin:4px 0 10px">Run this once a year to give everyone their leave for the year. Annual leave is exactly the figure in each person's <b>Annual Leave Entitled / Yr</b> — nothing is added for length of service and nothing is pro-rated. It's safe to run again — anyone already set up for that year is skipped.</p>
     <div class="callout warn" style="margin:0 0 12px">⚠️ <b>Carry-forward and the yearly resets are not installed yet.</b> Run <code>migration_app_v16.sql</code> in Supabase → SQL Editor and this becomes the one-button "Start a new year". Until then this button only credits the allowances — it does <b>not</b> carry annual leave forward and does <b>not</b> reset sick, hospitalisation or childcare, so those keep accumulating.</div>
     <div class="field" style="max-width:150px"><label>Target year</label>
-      <select data-act="grantyear">${ysYearOptions(y, gy)}</select></div>
+      <select data-act="grantyear" size="3" class="ysyears">${ysYearOptions(y, gy)}</select></div>
     ${vp.grantConfirm ? `<div class="callout warn">This adds the <b>${gy}</b> leave allowances for all ${activeEmps().length} active employees. Are you sure?
       <div class="actions"><button class="btn" data-act="grantgo">Yes, credit leave of ${gy} to all Employee</button><button class="btn sec" data-act="grantcancel">Cancel</button></div></div>`
     : `<button class="btn sec" data-act="grantask">Credit leave of ${gy} to all Employee</button>`}`}
