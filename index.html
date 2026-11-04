@@ -686,8 +686,13 @@ async function loadAll() {
     // for anybody but the person logged in, so on the Balances tab an expired carry was
     // indistinguishable from a live one and HR was shown days the database had already
     // stopped honouring.
-    isHR ? sb.from("annual_carry").select("emp_id,year,carry_in,expired_at,expires_on")
-         : Promise.resolve({ data: [], error: null })
+    //
+    // Fetched for EVERYONE, not just HR. my_annual_carry filters server-side to the
+    // current calendar year, so the moment HR starts next year -- which is done in
+    // December, before that year arrives -- it answers with nothing, and every screen
+    // reading it loses the carry. RLS limits a non-HR reader to their own rows, so this
+    // is the same data with the year filter taken off.
+    sb.from("annual_carry").select("emp_id,year,carry_in,expired_at,expires_on")
   ]);
   db.announcements = annR2.error ? [] : (annR2.data || []);
   db.annualCarry = (carryR2 && !carryR2.error) ? carryR2.data : null;
@@ -1254,9 +1259,13 @@ async function saveDraft() {
 }
 function saveBar() {
   const n = draftCount();
+  const busy = !!vp.saving;
   return `<div class="callout warn" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
-    <span>You have <b>${n}</b> unsaved change${n === 1 ? "" : "s"} on this tab.</span>
-    <span class="actions" style="margin:0"><button class="btn" data-act="hrsave">Save changes</button><button class="btn sec" data-act="hrdiscard">Discard</button></span></div>`;
+    <span>${busy ? `Saving ${n} change${n === 1 ? "" : "s"} and refreshing the figures…`
+                  : `You have <b>${n}</b> unsaved change${n === 1 ? "" : "s"} on this tab.`}</span>
+    <span class="actions" style="margin:0">
+      <button class="btn" data-act="hrsave" ${busy ? "disabled" : ""}>${busy ? "Saving…" : "Save changes"}</button>
+      <button class="btn sec" data-act="hrdiscard" ${busy ? "disabled" : ""}>Discard</button></span></div>`;
 }
 function leaveModal() {
   const lines = draftSummary();
@@ -1901,9 +1910,19 @@ function chainText(e) {
    read through here so no screen can quietly show one person's carry against another
    person's balance — which is exactly what the Apply-on-behalf form used to do. */
 function carryRecord(empId) {
-  if (empId === me.id && db.annualCarry) return db.annualCarry;
-  const y = new Date().getFullYear();
-  return (db.allCarry || []).find(c => c.emp_id === empId && Number(c.year) === y && !c.expired_at) || null;
+  /* The LATEST carry record, not the one whose year matches today's date.
+     Reported: "why the carried foward leave and AL are stick and counted in same column".
+     Starting a year is done BEFORE that year arrives -- HR ran "Start of 2027" in
+     November 2026 -- and that run writes the carry against the year it is opening. This
+     then looked for a 2026 record, found none, and reported no carry at all: the five
+     carried days fell into the Annual Leave column instead, which read 19 / 14.
+     The balance itself is the whole ledger, which that run has already rolled into the
+     new year, so the record to show beside it is the newest one. */
+  const mine = (db.allCarry || []).filter(c => c.emp_id === empId && !c.expired_at)
+    .sort((a, b) => Number(b.year) - Number(a.year));
+  if (mine.length) return mine[0];
+  // Nothing in the table: fall back to the view, which is all a pre-v7 database has.
+  return (empId === me.id && db.annualCarry) ? db.annualCarry : null;
 }
 function carryExpired(empId) {
   const c = carryRecord(empId);
@@ -2038,6 +2057,21 @@ function ysWhatItDoes(d, rows, gy, done) {
     ${t[1]} ${gy} for ${nPeople(n)}. Every other leave type ${t[2]} reset to this year's figure;
     <b>Off-in-Lieu is not touched</b>. Recorded in <b>Amendment records</b>.
     ${done ? "" : "<b>Cannot be undone from the app.</b>"}</p>`;
+}
+/* This year and the two after it. It used to run from LAST year to PH_MAX, which is
+   2500 — 476 options in a dropdown where exactly one is ever wanted. Starting a year is
+   something you do at the turn of the year, so the useful choices are this one (if it was
+   never started), the next one (the normal case) and one spare.
+
+   Last year is deliberately NOT offered any more: starting a year that has already run
+   is refused by the database anyway, and offering it only invites the attempt. */
+function ysYearOptions(y, gy) {
+  const years = [y, y + 1, y + 2];
+  // If HR somehow has a year selected outside that range, keep it in the list rather than
+  // silently switching their choice underneath them.
+  if (gy && !years.includes(gy)) years.unshift(gy);
+  return years.map(yy =>
+    `<option value="${yy}" ${yy === gy ? "selected" : ""}>${yy}</option>`).join("");
 }
 function ysRowsTable(rows, showRun, gy) {
   if (!rows || !rows.length) return `<p class="meta">Nobody to process — everyone is already done for this year.</p>`;
@@ -3210,14 +3244,14 @@ function hrSettings() {
     </ol>
     <p class="meta" style="margin:0 0 12px">Off-in-lieu is never touched — those days were earned by working. <b>Safe to press twice:</b> anyone already done for that year is skipped.</p>
     <div class="field" style="max-width:150px"><label>Target year</label>
-      <select data-act="grantyear">${Array.from({ length: PH_MAX - (y - 1) + 1 }, (_, i) => y - 1 + i).map(yy => `<option value="${yy}" ${yy === gy ? "selected" : ""}>${yy}</option>`).join("")}</select></div>
+      <select data-act="grantyear">${ysYearOptions(y, gy)}</select></div>
     ${vp.ysPreview ? ysPreviewBox(gy) : `<div class="actions"><button class="btn sec" data-act="yspreview">Start ${gy}…</button>
       <button class="btn ghost" data-act="yslogopen">📋 Past runs</button></div>`}
     ${vp.ysLog ? ysLogBox() : ""}`
     : `<p class="meta" style="margin:4px 0 10px">Run this once a year to give everyone their leave for the year. Annual leave is exactly the figure in each person's <b>Annual Leave Entitled / Yr</b> — nothing is added for length of service and nothing is pro-rated. It's safe to run again — anyone already set up for that year is skipped.</p>
     <div class="callout warn" style="margin:0 0 12px">⚠️ <b>Carry-forward and the yearly resets are not installed yet.</b> Run <code>migration_app_v16.sql</code> in Supabase → SQL Editor and this becomes the one-button "Start a new year". Until then this button only credits the allowances — it does <b>not</b> carry annual leave forward and does <b>not</b> reset sick, hospitalisation or childcare, so those keep accumulating.</div>
     <div class="field" style="max-width:150px"><label>Target year</label>
-      <select data-act="grantyear">${Array.from({ length: PH_MAX - (y - 1) + 1 }, (_, i) => y - 1 + i).map(yy => `<option value="${yy}" ${yy === gy ? "selected" : ""}>${yy}</option>`).join("")}</select></div>
+      <select data-act="grantyear">${ysYearOptions(y, gy)}</select></div>
     ${vp.grantConfirm ? `<div class="callout warn">This adds the <b>${gy}</b> leave allowances for all ${activeEmps().length} active employees. Are you sure?
       <div class="actions"><button class="btn" data-act="grantgo">Yes, credit leave of ${gy} to all Employee</button><button class="btn sec" data-act="grantcancel">Cancel</button></div></div>`
     : `<button class="btn sec" data-act="grantask">Credit leave of ${gy} to all Employee</button>`}`}
@@ -3635,7 +3669,22 @@ async function runAction(el) {
         rerender(); break;
       }
       delete vp.typeOk;
-      if (await saveDraft()) { delete vp.draft; await reloadKeep(); toast("Changes saved."); }
+      /* Reported: "it seems like hang there for few seconds, it makes confusion that i
+         actually clicked or not". It is not hanging -- saveDraft() sends one write per
+         thing changed, and then everything is refetched so the new balances are real
+         rather than guessed. That is several round trips and it is honestly a few
+         seconds. What was missing was any sign it had started: the button sat there
+         unchanged until the toast appeared at the end.
+
+         So the bar says Saving… and the buttons go dead. This does not make it faster;
+         it makes it answer. `finally` because an early return here would otherwise leave
+         the screen stuck on Saving… for ever, which is worse than the original. */
+      vp.saving = true; rerender();
+      try {
+        if (await saveDraft()) { delete vp.draft; await reloadKeep(); toast("Changes saved."); }
+      } finally {
+        delete vp.saving; rerender();
+      }
       break;
     }
     case "hrsaveok": { vp.typeOk = true; await runAction({ dataset: { act: "hrsave" } }); break; }
@@ -4442,6 +4491,11 @@ async function runAction(el) {
       if (error) { vp.ysPreview = { error: rpcMsg(error) }; rerender(); break; }
       vp.ysPreview = { data, done: true };
       await reloadKeep();
+      // Reported: "after pressing start new year only color change, i think it should
+      // message Year(XXXX) had been started successfully." The panel did change -- title,
+      // tense and colour -- but a panel you are already looking at changing underneath you
+      // is not an announcement. This is.
+      toast(yr + " has been started successfully.");
       break;
     }
     case "yscancel": delete vp.ysPreview; rerender(); break;
