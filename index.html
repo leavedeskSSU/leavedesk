@@ -4750,7 +4750,14 @@ document.addEventListener("change", async ev => {
       rerender(); return;
     }
     vp.form[f] = el.value;
-    if (f === "start" && vp.form.end < vp.form.start) vp.form.end = vp.form.start;
+    // Picking a start date moves the end date to match it. HR asked for this: the end
+    // date's picker opens on whatever date is already in the box, so after choosing a
+    // start date in March the end picker still opened on today and they had to scroll
+    // back to March to find the day they had just chosen. Most leave is a single day,
+    // so landing on "same day" and then extending is the shorter path either way.
+    // This fires for the employee Apply tab and HR's Apply tab alike -- both render
+    // vApply() and both arrive here.
+    if (f === "start" && vp.form.start) vp.form.end = vp.form.start;
     rerender();
   }
 });
