@@ -771,8 +771,13 @@ function isWorkingDayFor(ds, worksSat) {
 /* Does this draft clash with the applicant's own existing leave? Used BOTH while the
    dates are being picked (so the warning is immediate) and again at submit. The
    database enforces it independently — this is UX, not the guard. */
-function selfOverlap(f, exceptId) {
-  return db.applications.find(a => a.empId === me.id && a.id !== exceptId &&
+/* Whose clashes to look for. HR entering leave on somebody's behalf must be shown THAT
+   person's existing leave, not HR's own -- hardcoding me.id meant the warning never fired
+   on the HR console, and the clash was only caught by the database on submit, as a bare
+   error after the form had been filled in. */
+function selfOverlap(f, exceptId, empId) {
+  const id = empId || me.id;
+  return db.applications.find(a => a.empId === id && a.id !== exceptId &&
     ["pending", "approved", "cancel_requested"].includes(a.status) &&
     !(f.end < a.start || f.start > a.end));
 }
@@ -789,8 +794,8 @@ function workingDaysList(start, end, forEmp) {
   return list;
 }
 /* Day count honouring a per-day half map { "YYYY-MM-DD": "am"|"pm" } */
-function wdCountHalf(start, end, half) {
-  const list = workingDaysList(start, end);
+function wdCountHalf(start, end, half, forEmp) {
+  const list = workingDaysList(start, end, forEmp);
   let n = list.length;
   for (const ds of list) if (half && (half[ds] === "am" || half[ds] === "pm")) n -= 0.5;
   if (n <= 0 && list.length) n = 0.5;
@@ -2405,8 +2410,11 @@ function vApply() {
   const t = ltSafe(f.type), b = bal(who.id, f.type);
   const allowHalf = allowsHalf(t);
   const half = allowHalf ? f.half : {};
-  const wdays = workingDaysList(f.start, f.end);
-  const days = wdCountHalf(f.start, f.end, half);
+  // `who`, not the logged-in user: on the HR console these decide the day count, which
+  // days get a half-day picker, and whether the balance warning fires -- all for the
+  // employee being entered, whose Saturday rule may differ from HR's.
+  const wdays = workingDaysList(f.start, f.end, who);
+  const days = wdCountHalf(f.start, f.end, half, who);
   const over = !t.noDeduct && days > b.avail;
   const backdated = f.start < todayStr();
   // The breakdown comes from bal() and nowhere else. It used to be recomputed here from
@@ -2423,7 +2431,7 @@ function vApply() {
   const nextYearBlocked = (f.start || "").slice(0, 4) > curYear || (f.end || "").slice(0, 4) > curYear;
   // Warn as soon as the dates are chosen, not on submit — being told at the last
   // step, after filling everything in, is the complaint this fixes.
-  const clash = (f.start && f.end) ? selfOverlap(f, vp.editId) : null;
+  const clash = (f.start && f.end) ? selfOverlap(f, vp.editId, who.id) : null;
   return `
     <h2>${editing ? "Amend & resubmit" : onBehalf ? "Enter leave for an employee" : "Apply for leave"}</h2>
     <p class="sub">${onBehalf
@@ -2484,15 +2492,18 @@ async function doSubmit() {
   const f = vp.form, t = lt(f.type);
   if (!t) return toast("Please choose a leave type.");
   const allowHalf = allowsHalf(t);
-  const wdays = workingDaysList(f.start, f.end);
+  const subject = applySubject();
+  const wdays = workingDaysList(f.start, f.end, subject);
   const half = allowHalf ? (f.half || {}) : {};
   const halfDays = wdays.filter(ds => half[ds]).map(ds => ({ d: ds, part: half[ds] }));
-  const days = wdCountHalf(f.start, f.end, half);
+  const days = wdCountHalf(f.start, f.end, half, subject);
   if (!f.reason.trim()) return toast("Please add a brief reason for your leave.");
   if (t.mc && !f.att) return toast("Please attach a photo or PDF of your MC for this leave type.");
   if (t.mc && f.att && !/\.(jpe?g|png|heic|heif|webp|gif|pdf)$/i.test(f.att)) return toast("Your MC needs to be a photo or a PDF.");
-  const clash = selfOverlap(f, vp.editId);
-  if (clash) return toast(`These dates overlap your ${ltName(clash.type)}, ${fmtRange(clash.start, clash.end)}.`);
+  const clash = selfOverlap(f, vp.editId, subject.id);
+  if (clash) return toast(vp.hrApply
+    ? `These dates overlap ${subject.name}'s ${ltName(clash.type)}, ${fmtRange(clash.start, clash.end)}.`
+    : `These dates overlap your ${ltName(clash.type)}, ${fmtRange(clash.start, clash.end)}.`);
   // v27 — one application, one year. Leave straddling New Year has ALL of its days charged
   // to the year it starts in, so January comes out of December's allowance, invisibly.
   if (String(f.start).slice(0, 4) !== String(f.end).slice(0, 4))
