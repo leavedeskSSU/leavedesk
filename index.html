@@ -2156,12 +2156,15 @@ function ysRowsTable(rows, showRun, gy) {
   const yr = n => y ? ` (${n})` : "";
   const sum = k => rows.reduce((t, r) => t + (Number(r[k]) || 0), 0);
   const bal = r => Number(r.left ?? r.annual_left) || 0;
-  // The expiry date is one company-wide date for the whole run, so it was the same value
-  // repeated down a column. Said once, above the table, where it reads as a deadline
-  // rather than as a per-person figure.
-  const exp = rows[0] && rows[0].expires_on ? fmtDateY(rows[0].expires_on) : null;
-  return `    ${exp ? `<p class="ysnote" style="margin-top:0">Everything carried into ${y} must be used by
-      <b>${exp}</b>, after which it expires. One date for everybody.</p>` : ""}
+  // Wording supplied by HR verbatim. It replaced a line stating the carry expiry date,
+  // which was the one company-wide date for the whole run; HR wanted the screen to say
+  // what the rollover DOES rather than name a deadline, so the date is no longer shown
+  // here. It is still set, and still shown, on the Settings tab where it is chosen.
+  // Unconditional now: nothing in it depends on an expiry date being configured.
+  return `    <p class="ysnote" style="margin-top:0">Eligible Annual Leave balances will be
+      carried forward, subject to the applicable carry-forward limit. Any balance exceeding
+      the permitted limit will be forfeited. Sick Leave, Hospitalisation Leave, and all
+      other leave entitlements will be refreshed for the new leave year.</p>
     <div class="tablebox"${rows.length > 8 ? ' style="max-height:420px;overflow-y:auto"' : ""}><table>
     <thead><tr><th>Employee</th>
       <th class="num">${y ? y - 1 : ""} AL Balance</th>
