@@ -56,6 +56,37 @@ input,select,textarea{
   border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-width:100%;
 }
 select{padding-right:28px;text-overflow:ellipsis} /* keep long option text clear of the dropdown arrow */
+/* ---- Year picker ------------------------------------------------------------------
+   A plain <select> looks right closed but its open list is drawn by the operating
+   system, and no CSS caps that popup's height -- it came down the whole screen with a
+   century of years in it. HR asked for three rows showing and the rest on a scroll, so
+   the open list has to be ours. Closed it is still one year and a caret, exactly as the
+   <select> read; only the opened list differs. --yprow is the row height, and the list
+   is capped at three of them, so "three showing" is one number in one place. */
+.ypick{position:relative;display:block;--yprow:36px}
+.ypickbtn{
+  font:inherit;color:var(--ink);background:var(--surface);text-align:left;
+  border:1px solid var(--line);border-radius:8px;padding:8px 28px 8px 10px;
+  width:100%;display:block;position:relative;
+}
+.ypickbtn::after{
+  content:"";position:absolute;right:10px;top:50%;width:7px;height:7px;
+  border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:translateY(-70%) rotate(45deg);
+}
+.ypick.open .ypickbtn{border-color:var(--accent)}
+.ypicklist{
+  position:absolute;z-index:60;top:calc(100% + 4px);left:0;right:0;margin:0;padding:4px;
+  list-style:none;background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);
+  max-height:calc(var(--yprow) * 3 + 8px);overflow-y:auto;overscroll-behavior:contain;
+}
+.ypickopt{
+  height:var(--yprow);line-height:calc(var(--yprow) - 2px);padding:0 10px;border-radius:6px;
+  cursor:pointer;font-variant-numeric:tabular-nums;
+}
+.ypickopt:hover{background:var(--accent-soft)}
+.ypickopt[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{
   outline:2px solid var(--accent);outline-offset:2px;
 }
@@ -998,7 +1029,7 @@ function entNow(empId) { return bal(empId, "annual").yGranted; }
    asks in set_annual_entitlement, so it has to be answered the same way: by the entry's
    leave year and kind, not by the day it was typed. */
 function creditedThisYear(empId, code) {
-  const y = new Date().getFullYear();
+  const y = openLeaveYear(empId, code);
   return (db.ledger || []).some(l => l.empId === empId && l.type === code &&
     ledgerYear(l) === y && isEntitlement(l));
 }
@@ -1308,6 +1339,26 @@ const isHousekeeping = l => (l.kind ? (l.kind === "writeoff") : HOUSEKEEPING.tes
    Leave Entitled / Yr" jump by the carried amount every January. */
 const isEntitlement = l => (l.kind ? (l.kind === "grant" || l.kind === "adjust")
                                    : !(isLeaveEntry(l) || isHousekeeping(l)));
+/* ---- Which leave year the ledger is actually sitting in -------------------------
+   "This year" is not the calendar year. When HR starts a new year the run writes that
+   year's grant and carry_in immediately, so from the moment it is pressed the ledger is
+   open on 2027 while the wall calendar still says 2026. Totalling "this year" against
+   the calendar year then mixes the two: Amanda's one day taken in 2026 was counted
+   against her 2027 carry-forward, which showed her Annual Leave as 15 / 14 -- more days
+   of her own than she was ever granted. The open year is the latest one that has had a
+   year opened for it (a grant or a carry_in), never earlier than the calendar year, so
+   somebody whose ledger stops in 2025 still reads as 0 granted today rather than
+   reporting 2025's figures as current. */
+function openLeaveYear(empId, code) {
+  let y = new Date().getFullYear();
+  for (const l of (db.ledger || []))
+    if (l.empId === empId && l.type === code &&
+        (l.kind === "carry_in" || isEntitlement(l))) {
+      const n = Number(ledgerYear(l));
+      if (Number.isFinite(n) && n > y) y = n;
+    }
+  return y;
+}
 /* ---- Days that are already gone but not yet written down -------------------------
    Forfeiting an expired day happens in two steps that are NOT simultaneous: the date
    passes, and then the nightly job writes the write-off entry. Between the two, the
@@ -1383,9 +1434,10 @@ function bal(empId, code) {
   // hides the raw ledger); granted/used are unknown to them.
   if (!canSeeLedger(empId) && key in db.balCache) return { granted: null, used: null, pending: 0, avail: db.balCache[key], limited: true };
   let granted = 0, used = 0, yGranted = 0, yUsed = 0;
-  // yGranted / yUsed are THIS YEAR's. They used to be all-time sums while every label said
-  // "this year" — that was 19 / 22, and 972 / 528 after a few years.
-  const y = new Date().getFullYear();
+  // yGranted / yUsed are THE OPEN LEAVE YEAR's. They used to be all-time sums while every
+  // label said "this year" — that was 19 / 22, and 972 / 528 after a few years. They were
+  // then the CALENDAR year's, which broke the day HR started the next year early.
+  const y = openLeaveYear(empId, code);
   for (const l of db.ledger) if (l.empId === empId && l.type === code) {
     if (l.delta > 0) granted += l.delta; else used -= l.delta;
     if (ledgerYear(l) !== y) continue;
@@ -2058,17 +2110,39 @@ function ysWhatItDoes(d, rows, gy, done) {
     <b>Off-in-Lieu is not touched</b>. Recorded in <b>Amendment records</b>.
     ${done ? "" : "<b>Cannot be undone from the app.</b>"}</p>`;
 }
-/* An ordinary dropdown: one year showing, click to open, current year selected.
+/* One year showing, click to open, three rows visible, scroll for the rest.
    Last year through a hundred ahead, as asked. It used to run to PH_MAX = 2500. */
-const YS_YEARS_BACK = 1, YS_YEARS_FWD = 100;
-function ysYearOptions(y, gy) {
+const YS_YEARS_BACK = 1, YS_YEARS_FWD = 100, YS_ROWS_SHOWN = 3;
+function ysYearList(y, gy) {
   const years = [];
   for (let n = y - YS_YEARS_BACK; n <= y + YS_YEARS_FWD; n++) years.push(n);
   // A year selected outside that span stays in the list rather than being switched
   // underneath HR.
   if (gy && !years.includes(gy)) years.unshift(gy);
-  return years.map(yy =>
-    `<option value="${yy}" ${yy === gy ? "selected" : ""}>${yy}</option>`).join("");
+  return years;
+}
+function ysYearPicker(y, gy) {
+  const open = !!vp.yPickOpen;
+  return `<div class="ypick ${open ? "open" : ""}">
+    <button type="button" class="ypickbtn" data-act="ypicktoggle"
+      aria-haspopup="listbox" aria-expanded="${open}">${gy}</button>
+    ${open ? `<ul class="ypicklist" role="listbox" aria-label="Target year">${
+      ysYearList(y, gy).map(n =>
+        `<li class="ypickopt" role="option" aria-selected="${n === gy}"
+           data-act="ypickpick" data-y="${n}">${n}</li>`).join("")}</ul>` : ""}
+  </div>`;
+}
+/* The selected year is a long way down a hundred-row list, so the list is scrolled to it
+   on open -- otherwise clicking the picker shows the three OLDEST years and HR has to
+   scroll to find where they already are.
+   scrollTop is set directly rather than calling scrollIntoView, which scrolls every
+   scrollable ancestor including the page: opening the picker jumped the whole settings
+   tab down 1600px to centre a row that was already visible. */
+function ysYearPickerScroll() {
+  const list = document.querySelector(".ypicklist");
+  const sel = list && list.querySelector('[aria-selected="true"]');
+  if (!list || !sel) return;
+  list.scrollTop = Math.max(0, sel.offsetTop - (list.clientHeight - sel.offsetHeight) / 2);
 }
 function ysRowsTable(rows, showRun, gy) {
   if (!rows || !rows.length) return `<p class="meta">Nobody to process — everyone is already done for this year.</p>`;
@@ -3241,14 +3315,14 @@ function hrSettings() {
     </ol>
     <p class="meta" style="margin:0 0 12px">Off-in-lieu is never touched — those days were earned by working. <b>Safe to press twice:</b> anyone already done for that year is skipped.</p>
     <div class="field" style="max-width:150px"><label>Target year</label>
-      <select data-act="grantyear">${ysYearOptions(y, gy)}</select></div>
+      ${ysYearPicker(y, gy)}</div>
     ${vp.ysPreview ? ysPreviewBox(gy) : `<div class="actions"><button class="btn sec" data-act="yspreview">Start ${gy}…</button>
       <button class="btn ghost" data-act="yslogopen">📋 Past runs</button></div>`}
     ${vp.ysLog ? ysLogBox() : ""}`
     : `<p class="meta" style="margin:4px 0 10px">Run this once a year to give everyone their leave for the year. Annual leave is exactly the figure in each person's <b>Annual Leave Entitled / Yr</b> — nothing is added for length of service and nothing is pro-rated. It's safe to run again — anyone already set up for that year is skipped.</p>
     <div class="callout warn" style="margin:0 0 12px">⚠️ <b>Carry-forward and the yearly resets are not installed yet.</b> Run <code>migration_app_v16.sql</code> in Supabase → SQL Editor and this becomes the one-button "Start a new year". Until then this button only credits the allowances — it does <b>not</b> carry annual leave forward and does <b>not</b> reset sick, hospitalisation or childcare, so those keep accumulating.</div>
     <div class="field" style="max-width:150px"><label>Target year</label>
-      <select data-act="grantyear">${ysYearOptions(y, gy)}</select></div>
+      ${ysYearPicker(y, gy)}</div>
     ${vp.grantConfirm ? `<div class="callout warn">This adds the <b>${gy}</b> leave allowances for all ${activeEmps().length} active employees. Are you sure?
       <div class="actions"><button class="btn" data-act="grantgo">Yes, credit leave of ${gy} to all Employee</button><button class="btn sec" data-act="grantcancel">Cancel</button></div></div>`
     : `<button class="btn sec" data-act="grantask">Credit leave of ${gy} to all Employee</button>`}`}
@@ -3609,6 +3683,17 @@ document.addEventListener("submit", ev => {
 let pressOnBackdrop = false;
 document.addEventListener("mousedown", ev => { pressOnBackdrop = ev.target.classList && ev.target.classList.contains("modalback"); });
 
+/* The year picker is the only thing in the app with an open popup, so it is the only
+   thing that has to close when the click lands somewhere else. This runs on the way DOWN
+   so it still sees the original target even if the action below re-renders the page. */
+document.addEventListener("click", ev => {
+  if (!vp.yPickOpen) return;
+  if (ev.target.closest(".ypick")) return;       // inside the picker: its own action handles it
+  delete vp.yPickOpen; rerender();
+}, true);
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape" && vp.yPickOpen) { delete vp.yPickOpen; rerender(); }
+});
 document.addEventListener("click", async ev => {
   const el = ev.target.closest("[data-act]");
   if (!el) return;
@@ -3629,6 +3714,12 @@ async function runAction(el) {
   const act = el.dataset.act, id = el.dataset.id;
   switch (act) {
     case "logout": signOut(); break;
+    case "ypicktoggle": vp.yPickOpen = !vp.yPickOpen; rerender(); if (vp.yPickOpen) ysYearPickerScroll(); break;
+    case "ypickpick": {
+      vp.grantYear = numOr(el.dataset.y, new Date().getFullYear());
+      delete vp.yPickOpen; delete vp.ysPreview;   // a different year invalidates the preview
+      rerender(); break;
+    }
     case "nav": if (draftDirty()) { vp.leaveTo = { kind: "nav", v: el.dataset.v }; render(); break; } view = el.dataset.v; vp = {}; render(); break;
     case "hrtab": if (draftDirty()) { vp.leaveTo = { kind: "hrtab", t: el.dataset.t }; render(); break; } hrTab = el.dataset.t; vp = {}; render(); break;
     case "hrsave": {
@@ -4546,7 +4637,6 @@ document.addEventListener("change", async ev => {
     if (btn) btn.disabled = !el.checked;
     return;
   }
-  if (el.dataset.act === "grantyear") { vp.grantYear = numOr(el.value, new Date().getFullYear()); delete vp.ysPreview; rerender(); return; }
   if (el.dataset.act === "yslogyear") { if (vp.ysLog) vp.ysLog.year = el.value; rerender(); return; }
   if (el.dataset.act === "empf") {
     const id = el.dataset.id, f = el.dataset.f;
