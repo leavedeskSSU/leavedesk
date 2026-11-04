@@ -146,6 +146,28 @@ td.num{font-variant-numeric:tabular-nums}
 .hdrow select{max-width:190px;padding:5px 8px}
 
 .callout{border-radius:var(--r);padding:12px 16px;font-size:13.5px;border:1px solid}
+/* Year-start overview. Tiles rather than a three-column table: the old table put a
+   count of people and a count of days in the same two columns for five different
+   quantities, so "0 people / 0 days" and "5 entries" sat under the same headings and
+   meant different things. A tile states one number and then says what it is. */
+.ystitle{font-weight:700;font-size:15.5px;line-height:1.35}
+.yslede{font-size:13px;color:var(--muted);margin:3px 0 2px;line-height:1.5}
+.ysec{font-weight:700;font-size:13px;letter-spacing:.03em;color:var(--ink);margin:16px 0 8px}
+.ystiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:10px}
+.yswarn{background:var(--bg);border:1px solid var(--bad);border-radius:var(--r);padding:11px 14px;margin:0 0 12px;font-size:13px}
+.yswarn ul{margin:6px 0 0;padding-left:18px;line-height:1.7}
+.yswarn .yssub{margin-top:7px}
+tr.ystot td{border-top:2px solid var(--line);background:transparent}
+.ystile{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px}
+.ystile .ysnum{font-size:23px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums;margin-top:1px}
+.ystile .ysnum .ysunit{font-size:13px;font-weight:600;color:var(--muted);margin-left:2px}
+.ystile .yslabel{font-size:12.5px;font-weight:600;color:var(--muted);line-height:1.35}
+.yssteps{margin:0;padding-left:20px;font-size:13px;line-height:1.75}
+.yssteps li{margin:3px 0}
+.ystile .yssub{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.45}
+.ystile.bad .ysnum{color:var(--bad)}
+.ystile.zero .ysnum{color:var(--muted)}
+.ysnote{font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.6}
 .callout.acc{background:var(--accent-soft);border-color:var(--accent-line);color:var(--ink)}
 .callout.warn{background:var(--warn-soft);border-color:var(--warn);color:var(--ink)}
 
@@ -1976,21 +1998,85 @@ function carryLine(empId, code, b) {
    the code, not something two implementations have to be kept agreeing on. */
 function fmtDays(n) { return fmtD(Number(n) || 0); }
 const nPeople = n => (Number(n) || 0) + ((Number(n) || 0) === 1 ? " person" : " people");
-function ysRowsTable(rows, showRun) {
+/* The year-start screen. It had grown to four lettered sections, a tile per background
+   action, a numbered procedure and a five-line verification checklist -- all of it true,
+   none of it readable before pressing a button. What HR needs is: is anything wrong, what
+   happens to each person, and what does the button do. Three things, in that order.
+
+   Everything cut is still somewhere: the per-person detail is in the table, the rest in
+   the CSV export. Nothing was deleted to make the screen shorter.
+
+   Every year comes from `gy`, the year HR picked. Nothing is written into the page. */
+function ysWarnings(rows, gy, done) {
+  if (done) return "";
+  const num = v => Number(v) || 0;
+  const w = [];
+  for (const r of rows) {
+    const nm = esc(r.name || r.emp_name || "");
+    if (!(num(r.cap ?? r.cap_applied) > 0) && num(r.forfeited) > 0)
+      w.push(`<b>${nm}</b> has a Carry-Forward Limit of <b>0</b>, so all
+              <b>${fmtDays(r.forfeited)} days</b> are forfeited. Set a limit in
+              <b>Employee Setting</b> if that is wrong.`);
+    if (num(r.left ?? r.annual_left) < 0)
+      w.push(`<b>${nm}</b> is overdrawn (<b>${fmtDays(r.left ?? r.annual_left)}</b>); the
+              shortfall carries into ${gy}.`);
+    if (num(r.expired) > 0)
+      w.push(`<b>${nm}</b> has <b>${fmtDays(r.expired)} days</b> of older carry-forward that
+              already expired unused.`);
+  }
+  if (!w.length) return "";
+  // Shown only when there IS something. An empty "nothing to review" box is a box you
+  // learn to scroll past, and then miss on the day it matters.
+  return `<div class="yswarn"><b>⚠ ${w.length} thing${w.length === 1 ? "" : "s"} to check first</b>
+    <ul>${w.map(x => `<li>${x}</li>`).join("")}</ul>
+    <div class="yssub">None of these stops the rollover — look, then carry on.</div></div>`;
+}
+function ysWhatItDoes(d, rows, gy, done) {
+  const n = rows.length;
+  const t = done ? ["closed", "opened", "was"] : ["closes", "opens", "is"];
+  return `<p class="ysnote"><b>What this ${done ? "did" : "does"}:</b> ${t[0]} ${gy - 1} and
+    ${t[1]} ${gy} for ${nPeople(n)}. Every other leave type ${t[2]} reset to this year's figure;
+    <b>Off-in-Lieu is not touched</b>. Recorded in <b>Amendment records</b>.
+    ${done ? "" : "<b>Cannot be undone from the app.</b>"}</p>`;
+}
+function ysRowsTable(rows, showRun, gy) {
   if (!rows || !rows.length) return `<p class="meta">Nobody to process — everyone is already done for this year.</p>`;
-  return `<div class="tablebox" style="max-height:320px;overflow-y:auto"><table>
-    <thead><tr><th>Employee</th><th class="num">AL taken</th><th class="num">AL left</th><th class="num">Max carry</th>
-      <th class="num">Carried</th><th class="num">Forfeited</th><th class="num">Expired</th><th>Carry expires</th><th class="num">Reset</th></tr></thead>
+  // Headings as HR named them. Each one says WHICH YEAR it is about, which is the whole
+  // difficulty with this screen: four of these columns are about the year ending and two
+  // about the year starting, and unlabelled they all look like the same year.
+  // The Reset column is gone -- a total of nine other leave types' balances, which is not
+  // a figure anybody acts on, sitting among annual-leave figures as though it were one.
+  const y = Number(gy) || (rows[0] && rows[0].year) ||
+            (rows[0] && rows[0].expires_on ? Number(String(rows[0].expires_on).slice(0, 4)) : null);
+  const yr = n => y ? ` (${n})` : "";
+  const sum = k => rows.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+  const bal = r => Number(r.left ?? r.annual_left) || 0;
+  // The expiry date is one company-wide date for the whole run, so it was the same value
+  // repeated down a column. Said once, above the table, where it reads as a deadline
+  // rather than as a per-person figure.
+  const exp = rows[0] && rows[0].expires_on ? fmtDateY(rows[0].expires_on) : null;
+  return `    ${exp ? `<p class="ysnote" style="margin-top:0">Everything carried into ${y} must be used by
+      <b>${exp}</b>, after which it expires. One date for everybody.</p>` : ""}
+    <div class="tablebox"${rows.length > 8 ? ' style="max-height:420px;overflow-y:auto"' : ""}><table>
+    <thead><tr><th>Employee</th>
+      <th class="num">${y ? y - 1 : ""} AL Balance</th>
+      <th class="num">Carry-Forward Limit</th>
+      <th class="num">Carried-Forward AL${yr(y)}</th>
+      <th class="num">Forfeited AL${yr(y - 1)}</th></tr></thead>
     <tbody>${rows.map(r => `<tr>
       <td>${esc(r.name || r.emp_name || "")}</td>
-      <td class="num">${fmtDays(r.taken_prev ?? r.annual_taken_prev)}</td>
-      <td class="num">${fmtDays(r.left ?? r.annual_left)}</td>
+      <td class="num"${bal(r) < 0 ? ' style="color:var(--bad);font-weight:600"' : ""}>${fmtDays(r.left ?? r.annual_left)}</td>
       <td class="num">${fmtDays(r.cap ?? r.cap_applied)}</td>
-      <td class="num">${fmtDays(r.carried)}</td>
-      <td class="num"${Number(r.forfeited) > 0 ? ' style="color:var(--bad);font-weight:600"' : ""}>${fmtDays(r.forfeited)}</td>
-      <td class="num">${fmtDays(r.expired)}</td>
-      <td>${r.expires_on ? fmtDate(r.expires_on) : "N/A"}</td>
-      <td class="num">${fmtDays(r.reset_days)}</td></tr>`).join("")}</tbody></table></div>`;
+      <td class="num"><b>${fmtDays(r.carried)}</b></td>
+      <td class="num"${Number(r.forfeited) > 0 ? ' style="color:var(--bad);font-weight:600"' : ""}>${fmtDays(r.forfeited)}</td></tr>`).join("")}
+      <tr class="ystot"><td><b>Total</b></td>
+        <td class="num"><b>${fmtDays(rows.reduce((t, r) => t + bal(r), 0))}</b></td>
+        <td class="num"></td>
+        <td class="num"><b>${fmtDays(sum("carried"))}</b></td>
+        <td class="num"><b>${fmtDays(sum("forfeited"))}</b></td></tr>
+    </tbody></table></div>
+    <p class="ysnote"><b>${y ? y - 1 : ""} AL Balance = Carried-Forward AL + Forfeited AL.</b>
+      Days already taken are in the CSV export.</p>`;
 }
 function ysPreviewBox(gy) {
   const p = vp.ysPreview || {};
@@ -2035,16 +2121,14 @@ function ysPreviewBox(gy) {
       <b>All records</b> or <b>Approvals</b>, then come back.</p>
     <div class="actions"><button class="btn sec" data-act="yscancel">Close</button></div></div>`;
   return `<div class="callout ${done ? "acc" : "warn"}" style="margin:12px 0">
-    <b>${done ? `${gy} has been started.` : `Start of ${gy} — nothing has been changed yet`}</b>
-    <div class="tablebox" style="margin:8px 0"><table><tbody>
-      <tr><td>Carried forward</td><td class="num">${nPeople(d.carried_people)}</td><td class="num"><b>${fmtDays(d.carried_days)}</b> days</td></tr>
-      <tr><td>Expired unused</td><td class="num">${nPeople(d.expired_people)}</td><td class="num"><b>${fmtDays(d.expired_days)}</b> days</td></tr>
-      <tr><td>Forfeited above the maximum</td><td class="num">${nPeople(d.forfeited_people)}</td><td class="num"><b>${fmtDays(d.forfeited_days)}</b> days</td></tr>
-      <tr><td>Other leave types reset</td><td class="num">${nPeople(d.reset_people)}</td><td class="num"></td></tr>
-      <tr><td>Allowances credited</td><td class="num">${(d.granted || 0)} ${(d.granted || 0) === 1 ? "entry" : "entries"}</td><td class="num"></td></tr>
-    </tbody></table></div>
+    <div class="ystitle">Start of ${gy} — Year-End Leave Rollover ${done ? "Applied" : "Preview"}</div>
+    <div class="yslede">${done
+      ? `Summary and individual employee carry-forward details. These changes have been applied.`
+      : `Check the figures below, then run it. Nothing has been changed yet.`}</div>
+    ${ysWarnings(rows, gy, done)}
     ${d.accrual_mode === "monthly" ? `<p class="meta" style="margin:6px 0">You are on <b>monthly accrual</b>, so no yearly allowance is credited — leave arrives in twelve monthly instalments instead. Carry-forward and the resets still run. This is intended, not a failure.</p>` : ""}
-    ${ysRowsTable(rows, done)}
+    ${ysRowsTable(rows, done, gy)}
+    ${ysWhatItDoes(d, rows, gy, done)}
     <div class="actions">
       ${done ? `<button class="btn sec" data-act="yscancel">Close</button><button class="btn ghost" data-act="yscsv">⬇ Export CSV</button>`
              : `<button class="btn" data-act="ysgo">Run start of ${gy}</button><button class="btn sec" data-act="yscancel">Cancel</button><button class="btn ghost" data-act="yscsv">⬇ Export CSV</button>`}
@@ -2065,7 +2149,7 @@ function ysLogBox() {
       ${rows.length ? `<button class="btn ghost" data-act="yslogcsv">⬇ Export CSV</button>` : ""}
       <button class="btn sec" data-act="yslogclose">Close</button>
     </div>
-    ${rows.length ? `<div style="margin-top:8px">${ysRowsTable(rows, true)}</div>` : ""}
+    ${rows.length ? `<div style="margin-top:8px">${ysRowsTable(rows, true, yr)}</div>` : ""}
   </div>`;
 }
 /* The balance tiles on the dashboard. NOT dead code — vDashboard passes it to
@@ -3143,9 +3227,23 @@ function hrSettings() {
    under slightly different names, which is why every row is read through `??`. */
 function ysExport(rows, year) {
   if (!rows || !rows.length) return toast("Nothing to export");
-  const out = [["Employee", "Annual leave taken last year", "Annual leave left", "Max carry-forward",
-                "Carried forward", "Forfeited above the maximum", "Expired unused", "Carry expires",
-                "Days reset", "Leave types reset"]];
+  // Same words as the screen, so the file and the page cannot describe the same column
+  // differently. The reset detail stays HERE and only here: it is a total of nine other
+  // leave types, which is not something anybody acts on while deciding to press Run, but
+  // is worth having in the record.
+  // Same names as the Employee Table on screen, so the file and the page cannot describe
+  // the same column differently. The reset detail stays HERE and only here: a total of
+  // nine other leave types is not something anybody acts on while deciding to press Run,
+  // but it is worth having in the record.
+  const py = Number(year) || null;
+  const yr = n => py ? ` (${n})` : "";
+  // The five columns on screen, named the same way, plus the four that were taken OFF the
+  // screen to keep it readable. They live here now: days taken, carry-forward that already
+  // expired, the expiry date, and the other-leave-types reset with its per-type breakdown.
+  const out = [["Employee", "AL Taken" + yr(py - 1), (py ? py - 1 : "") + " AL Balance",
+                "Carry-Forward Limit", "Carried-Forward AL" + yr(py),
+                "Forfeited AL" + yr(py - 1), "CF Expired" + yr(py - 1), "Carry Expires",
+                "Other leave types — days reset", "Other leave types — detail"]];
   for (const r of rows) {
     const resets = (r.resets || []).map(x => `${x.name} ${fmtD(Number(x.cleared) || 0)}→${fmtD(Number(x.credits) || 0)}`).join("; ");
     out.push([r.name ?? r.emp_name ?? "", fmtD(Number(r.taken_prev ?? r.annual_taken_prev) || 0),
