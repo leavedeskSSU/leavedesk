@@ -131,6 +131,8 @@ h3{font-size:15px;margin:0 0 10px}
 .st-returned{background:var(--warn-soft);color:var(--warn)}
 .st-withdrawn{background:var(--gray-soft);color:var(--muted)}
 .st-cancel_requested{background:var(--info-soft);color:var(--info)}
+/* My leave entitlement: HR asked for a bolder, larger heading row on this table only. */
+.enttbl thead th{font-weight:700;font-size:15px}
 /* "Entered by HR" on a row: a quiet grey tag, not a status pill -- it is a note about who
    typed the application, not about where the application has got to. */
 .tagHR{display:inline-block;background:var(--line);color:var(--muted);border-radius:99px;
@@ -576,8 +578,15 @@ const mapAction = c => ({
   approved: "Approved", approved_overlap_ack: "Approved (overlap acknowledged)",
   rejected: "Rejected", returned: "Returned", withdrawn: "Withdrawn", auto_approved: "Auto-approved",
   cancel_requested: "Cancellation requested", cancelled: "Cancellation confirmed", cancel_denied: "Cancellation declined",
+  cancel_step_approved: "Cancellation approved (a level)",
   auto_cancelled: "Cancelled automatically"
 }[c] || c);
+/* The timeline prints "<action> — <comment>", and the database writes a fixed sentence for
+   the automatic actions, so the explanation landed twice and named a job title
+   ("Managing Director") that is only right for one person. Normalised on the way in rather
+   than with a migration, so rows already written read the same way as new ones. */
+const autoComment = c => /^No approver required/i.test(c || "") ? "No approver required"
+  : /^Applied by HR on behalf$/i.test(c || "") ? "Applied by HR" : (c || "");
 
 async function loadAll() {
   // 按需知：HR 读整表（含 annual_base/join_date 等敏感列供 Console 编辑）；
@@ -664,11 +673,6 @@ async function loadAll() {
     // off the wording. Those two guesses are what made a company-wide top-up look like
     // last year's leftover. Kept as a fallback so an un-upgraded database still works.
     year: (l.leave_year == null ? null : Number(l.leave_year)), kind: l.kind || null }));
-  // The timeline prints "<action> — <comment>", and the database writes a fixed sentence
-  // for the two automatic actions, so the explanation landed twice and named a job title
-  // ("Managing Director") that is only right for one person. Normalise it here rather than
-  // with a migration, so rows already written are corrected too.
-  const autoComment = c => /^No approver required/i.test(c || "") ? "No approver required" : (c || "");
   const ev = events.map(v => ({ appId: v.application_id, actor: v.actor, raw: v.action, action: mapAction(v.action),
     comment: autoComment(v.comment), ts: Date.parse(v.created_at) })).sort((a, b) => a.ts - b.ts);
 
@@ -1647,8 +1651,10 @@ function inbox(u) {
   // nobody to route to — before SQL v15 those sat in this state forever, invisible to everyone,
   // because this filter requires steps[0]. v15 confirms them at request time so they should
   // never appear, but route any that do to HR rather than letting them vanish again.
+  // A cancellation goes through every level the employee has, so it belongs to whoever
+  // holds it NOW. Routing on steps[0] meant a second-level approver was never shown one.
   const cancels = db.applications.filter(a => a.status === "cancel_requested" &&
-    (a.steps.length ? a.steps[0].approverId === u.id
+    (a.steps.length ? (a.steps[a.cur] || a.steps[0]).approverId === u.id
                     : (u.role === "hr" || u.role === "admin")));
   return { todo, cancels, count: todo.length + cancels.length };
 }
@@ -2312,7 +2318,7 @@ function vProfile() {
     ${teamCard()}
     <div class="card" style="margin-top:20px">
       <h3>My leave entitlement</h3>
-      <div class="tablebox"><table><thead><tr><th>Leave type</th><th class="num">Balance</th><th class="num">Taken</th><th class="num">Left</th></tr></thead><tbody>
+      <div class="tablebox"><table class="enttbl"><thead><tr><th>Leave type</th><th class="num">Total</th><th class="num">Taken</th><th class="num">Left</th></tr></thead><tbody>
         ${cards.map(t => { const b = bal(me.id, t.code);
           // Annual leave is shown WITHOUT the carried days, because carryRow() below is
           // already showing them. Both columns used to include them: Left came from
@@ -2334,7 +2340,7 @@ function vProfile() {
           <td class="num">${t.noDeduct ? "—" : fmtD(left)}</td></tr>`; }).join("")}
         ${carryRow()}
       </tbody></table></div>
-      <p class="meta" style="margin-top:8px"><b>Taken</b> is leave you applied for and had approved, this year. Cancelling gives the days straight back. Year-end write-offs and HR corrections are not leave you took, so they never appear here.</p>
+      <p class="meta" style="margin-top:8px"><b>Taken</b> is leave you applied for and had approved, this year. Cancelling gives the days straight back.</p>
     </div>`;
 }
 
@@ -2647,7 +2653,7 @@ function vCalendar() {
       <div class="chips">${chips}</div></div>`);
   }
   return `<h2>Company leave calendar</h2>
-    <p class="sub">Everyone can see who is away. Approved leave shows in solid colour; leave still pending approval is faded. Use <b>Next ›</b> to preview next year's public holidays (applications for next year open on 1 Jan).</p>
+    <p class="sub">Everyone can see who is away. Approved leave shows in solid colour; leave still pending approval is faded. Use the Prev and Next buttons to navigate between months and view their respective information.</p>
     <div class="card">
       <div class="calhead">
         <button class="btn sec" data-act="calmove" data-dir="-1">‹ Prev</button>
@@ -2745,13 +2751,18 @@ function cancelCard(a) {
 function stepsView(a) {
   if (!a.steps.length) return `<div class="steps"><div class="step ok"><span class="dot">✓</span><span>Approved automatically — No approver required</span></div></div>`;
   const live = a.status === "pending" || a.status === "cancel_requested";
+  // While a cancellation is going through, the levels are acting on the CANCELLATION,
+  // not on the leave, and HR asked for them to say so.
+  const cxl = a.status === "cancel_requested" || a.status === "cancelled";
+  const doneWord = cxl ? "Cancellation Approved" : "Approved";
+  const liveWord = cxl ? "Pending Approval" : "Pending";
   return `<div class="steps">${a.steps.map((s, i) => {
     const cls = s.status === "approved" ? "ok" : (s.status === "rejected" || s.status === "returned") ? "no" : (i === a.cur && live) ? "now" : "off";
     const icon = s.status === "approved" ? "✓" : (s.status === "rejected" ? "✕" : (s.status === "returned" ? "↩" : s.order));
-    const tail = s.status === "approved" ? "Approved" + (s.comment ? ": " + esc(s.comment) : "") :
+    const tail = s.status === "approved" ? doneWord + (s.comment ? ": " + esc(s.comment) : "") :
       s.status === "rejected" ? "Rejected: " + esc(s.comment) :
       s.status === "returned" ? "Returned: " + esc(s.comment) :
-      (i === a.cur && live) ? "Pending" : "Waiting for previous level";
+      (i === a.cur && live) ? liveWord : "Waiting for previous level";
     return `<div class="step ${cls}"><span class="dot">${icon}</span><span>Level ${s.order} · ${esc(empName(s.approverId))} — ${tail}</span></div>`;
   }).join("")}</div>`;
 }
