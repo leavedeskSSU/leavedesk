@@ -2612,7 +2612,11 @@ function appTable(list, showWho) {
     ${showWho ? "<th>Employee</th>" : ""}<th>Type</th><th>Dates</th><th class="num">Days</th><th>Status</th><th>Waiting on</th>${showWho ? "<th>Remarks</th>" : ""}</tr></thead><tbody>
     ${list.map(a => {
       const t = ltSafe(a.type);
-      const node = a.status === "pending" && a.steps.length ? empName(a.steps[a.cur].approverId) + (a.steps.length > 1 ? ` (level ${a.cur + 1}/${a.steps.length})` : "") : "—";
+      const liveNow = ["pending", "cancel_requested"].includes(a.status) && a.steps.length;
+      const li = Math.min(Math.max(Number(a.cur) || 0, 0), a.steps.length - 1);
+      const node = liveNow
+        ? empName(a.steps[li].approverId) + (a.steps.length > 1 ? ` (level ${li + 1}/${a.steps.length})` : "")
+        : "—";
       return `<tr class="rowlink" data-act="detail" data-id="${a.id}">
         ${showWho ? `<td>${esc(empName(a.empId))}</td>` : ""}
         <td>${esc(t.en)}${a.att ? ` <span title="Has an attachment">📎</span>` : ""}${
