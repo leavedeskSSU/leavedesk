@@ -2744,13 +2744,14 @@ function cancelCard(a) {
 }
 function stepsView(a) {
   if (!a.steps.length) return `<div class="steps"><div class="step ok"><span class="dot">✓</span><span>Approved automatically — No approver required</span></div></div>`;
+  const live = a.status === "pending" || a.status === "cancel_requested";
   return `<div class="steps">${a.steps.map((s, i) => {
-    const cls = s.status === "approved" ? "ok" : (s.status === "rejected" || s.status === "returned") ? "no" : (i === a.cur && a.status === "pending") ? "now" : "off";
+    const cls = s.status === "approved" ? "ok" : (s.status === "rejected" || s.status === "returned") ? "no" : (i === a.cur && live) ? "now" : "off";
     const icon = s.status === "approved" ? "✓" : (s.status === "rejected" ? "✕" : (s.status === "returned" ? "↩" : s.order));
     const tail = s.status === "approved" ? "Approved" + (s.comment ? ": " + esc(s.comment) : "") :
       s.status === "rejected" ? "Rejected: " + esc(s.comment) :
       s.status === "returned" ? "Returned: " + esc(s.comment) :
-      (i === a.cur && a.status === "pending") ? "Pending" : "Waiting for previous level";
+      (i === a.cur && live) ? "Pending" : "Waiting for previous level";
     return `<div class="step ${cls}"><span class="dot">${icon}</span><span>Level ${s.order} · ${esc(empName(s.approverId))} — ${tail}</span></div>`;
   }).join("")}</div>`;
 }
