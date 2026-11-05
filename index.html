@@ -131,6 +131,10 @@ h3{font-size:15px;margin:0 0 10px}
 .st-returned{background:var(--warn-soft);color:var(--warn)}
 .st-withdrawn{background:var(--gray-soft);color:var(--muted)}
 .st-cancel_requested{background:var(--info-soft);color:var(--info)}
+/* "Entered by HR" on a row: a quiet grey tag, not a status pill -- it is a note about who
+   typed the application, not about where the application has got to. */
+.tagHR{display:inline-block;background:var(--line);color:var(--muted);border-radius:99px;
+  padding:1px 8px;font-size:11px;font-weight:600;vertical-align:middle;white-space:nowrap}
 .st-cancelled{background:var(--gray-soft);color:var(--muted)}
 
 .tablebox{overflow-x:auto}
@@ -665,7 +669,7 @@ async function loadAll() {
   // ("Managing Director") that is only right for one person. Normalise it here rather than
   // with a migration, so rows already written are corrected too.
   const autoComment = c => /^No approver required/i.test(c || "") ? "No approver required" : (c || "");
-  const ev = events.map(v => ({ appId: v.application_id, actor: v.actor, action: mapAction(v.action),
+  const ev = events.map(v => ({ appId: v.application_id, actor: v.actor, raw: v.action, action: mapAction(v.action),
     comment: autoComment(v.comment), ts: Date.parse(v.created_at) })).sort((a, b) => a.ts - b.ts);
 
   // Company-wide calendar comes from a dedicated view (everyone can read it),
@@ -2581,6 +2585,18 @@ function vMyApps() {
   return `<h2>My applications</h2><p class="sub">Click any row to see the full approval timeline</p>
     <div class="card">${mine.length ? appTable(mine, false) : `<div class="empty">No applications yet</div>`}</div>`;
 }
+/* Who put this application in. Leave HR enters on somebody's behalf looked identical to
+   leave they had applied for themselves, so there was no way for them to tell from their
+   own list that HR had done it -- the only trace was inside the timeline.
+   The test is the submitter, not a comment: if whoever submitted it is not the person the
+   leave belongs to, somebody else entered it. That reads correctly for applications
+   already in the database, so nothing has to be migrated or backfilled. */
+function enteredByOther(a) {
+  if (!a || !db.events) return null;
+  const ev = db.events.find(x => x.appId === a.id &&
+    (x.raw === "submitted" || x.raw === "resubmitted") && x.actor && x.actor !== a.empId);
+  return ev ? ev.actor : null;
+}
 function appTable(list, showWho) {
   // Remarks appear on the views that look at OTHER people (HR console, an approver's team),
   // where reading a reason previously meant opening every row in turn. Your own list keeps
@@ -2593,7 +2609,8 @@ function appTable(list, showWho) {
       const node = a.status === "pending" && a.steps.length ? empName(a.steps[a.cur].approverId) + (a.steps.length > 1 ? ` (level ${a.cur + 1}/${a.steps.length})` : "") : "—";
       return `<tr class="rowlink" data-act="detail" data-id="${a.id}">
         ${showWho ? `<td>${esc(empName(a.empId))}</td>` : ""}
-        <td>${esc(t.en)}${a.att ? ` <span title="Has an attachment">📎</span>` : ""}</td><td class="num">${fmtRange(a.start, a.end)}</td>
+        <td>${esc(t.en)}${a.att ? ` <span title="Has an attachment">📎</span>` : ""}${
+          enteredByOther(a) ? ` <span class="tagHR" title="Entered by HR on your behalf">Entered by HR</span>` : ""}</td><td class="num">${fmtRange(a.start, a.end)}</td>
         <td class="num">${fmtD(a.days)}</td><td><span class="pill st-${a.status}">${stName(a.status)}</span></td><td>${node}</td>${showWho ? `<td class="meta" title="${esc(a.reason || "")}">${cut(a.reason, 40) || "—"}</td>` : ""}</tr>`;
     }).join("")}</tbody></table></div>`;
 }
@@ -2758,7 +2775,8 @@ function detailModal(id) {
         ${halfDayRows(a)}
         <dt>Reason</dt><dd>${esc(a.reason)}</dd>
         ${a.att ? `<dt>Attachment</dt><dd><div id="attprev" data-path="${esc(a.att)}" data-name="${esc(a.att.split("/").pop().replace(/^\d+_/, ""))}">${attLink(a.att)}</div></dd>` : ""}
-        <dt>Submitted</dt><dd>${fmtTs(a.createdAt)}${a.backdated ? " · backdated" : ""}</dd>
+        <dt>Submitted</dt><dd>${fmtTs(a.createdAt)}${a.backdated ? " · backdated" : ""}${
+          enteredByOther(a) ? ` · entered by ${esc(empName(enteredByOther(a)))}` : ""}</dd>
       </dl>
       ${own && !canCancel && ["cancel_requested","cancelled","rejected","withdrawn"].includes(a.status)
         ? `<p class="meta" style="margin:6px 0 0">${{
