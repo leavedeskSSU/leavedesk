@@ -2130,7 +2130,7 @@ function ysWhatItDoes(d, rows, gy, done) {
   const t = done ? ["closed", "opened", "was"] : ["closes", "opens", "is"];
   return `<p class="ysnote"><b>What this ${done ? "did" : "does"}:</b> ${t[0]} ${gy - 1} and
     ${t[1]} ${gy} for ${nPeople(n)}. Every other leave type ${t[2]} reset to this year's figure;
-    <b>Off-in-Lieu is not touched</b>. Recorded in <b>Amendment records</b>.
+    <b>Off-in-Lieu is not touched</b>. Recorded in <b>Leave History</b>.
     ${done ? "" : "<b>Cannot be undone from the app.</b>"}</p>`;
 }
 /* One year showing, click to open, three rows visible, scroll for the rest.
@@ -2249,7 +2249,7 @@ function ysPreviewBox(gy) {
         ${b.status === "cancel_requested" ? "cancellation requested" : "pending"}</li>`).join("")}
     </ul>
     <p class="meta" style="margin:0 0 10px">Nothing has been changed. Deal with these in
-      <b>All records</b> or <b>Approvals</b>, then come back.</p>
+      <b>Application Record</b> or <b>Approvals</b>, then come back.</p>
     <div class="actions"><button class="btn sec" data-act="yscancel">Close</button></div></div>`;
   return `<div class="callout ${done ? "acc" : "warn"}" style="margin:12px 0">
     <div class="ystitle">Start of ${gy} — Year-End Leave Rollover ${done ? "Applied" : "Preview"}</div>
@@ -2858,8 +2858,8 @@ function detailModal(id) {
 /* ---- HR Console ---- */
 function vHR() {
   const tabs = db.orgV18
-    ? [["records", "All records"], ["balances", "Balances"], ["employees", "Employee Setting"], ["types", "Leave types"], ["apply", "Leave Application"], ["amend", "Amendment records"], ["settings", "Company settings"]]
-    : [["records", "All records"], ["balances", "Balances"], ["employees", "Employee Setting"], ["types", "Leave types"], ["ledger", "Balance adjustments"], ["settings", "Company settings"]];
+    ? [["records", "Application Record"], ["balances", "Balances"], ["employees", "Employee Setting"], ["types", "Leave Types"], ["apply", "Leave Application"], ["amend", "Leave History"], ["settings", "Company settings"]]
+    : [["records", "Application Record"], ["balances", "Balances"], ["employees", "Employee Setting"], ["types", "Leave Types"], ["ledger", "Balance adjustments"], ["settings", "Company settings"]];
   if (!tabs.some(t => t[0] === hrTab)) hrTab = "records";
   return `<h2>HR Console</h2><p class="sub">Company-wide records, balances, approval routing and balance adjustments</p>
     <div class="tabs">${tabs.map(([k, l]) => `<button data-act="hrtab" data-t="${k}" class="${hrTab === k ? "on" : ""}">${l}${k === "settings" && phMissingYear() ? " ⚠️" : ""}</button>`).join("")}</div>
@@ -2895,10 +2895,10 @@ function hrRecords() {
   return `<div class="card">
     <h3 style="display:flex;align-items:center;gap:8px;margin:0 0 10px">
       <button class="btn ghost" style="padding:2px 9px" data-act="recyear" data-y="${prev}" ${prev ? "" : "disabled"} title="${prev || "No earlier year"}">◀</button>
-      <span>All records — ${inYear} record${inYear === 1 ? "" : "s"} in ${y}</span>
+      <span>Application Record — ${inYear} record${inYear === 1 ? "" : "s"} in ${y}</span>
       <button class="btn ghost" style="padding:2px 9px" data-act="recyear" data-y="${next}" ${next ? "" : "disabled"} title="${next || "No later year"}">▶</button>
       <span class="phsearch" title="Type a year to go to it">🔍<input type="text" data-f="recYearSearch" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(vp.recYearSearch || "")}" placeholder="${y}" aria-label="Go to year"></span></h3>
-    <p class="meta" style="margin:0 0 10px">One year at a time — use ◀ ▶ to switch years. A record sits in the year its leave starts.</p>
+    <p class="meta" style="margin:0 0 10px">Use ◀ and ▶ to switch between years and view employee leave records for each year. Records are grouped by the year in which the leave starts. For leave spanning two calendar years, the entire application is listed under its start year.</p>
     <div class="frow" style="align-items:flex-end;margin-bottom:10px">
       <div class="field" style="max-width:260px"><label>Search employee</label>
         <input type="search" id="recsearch" data-f="recSearch" value="${esc(vp.recSearch || "")}" placeholder="Type a name…"></div>
@@ -2949,7 +2949,7 @@ function hrEmployees() {
   const shown = activeEmps().filter(e => empMatches(e, q, deptF));
   const deptCount = d => db.employees.filter(e => e.active !== false && e.dept === d).length;
   return `<div class="card">
-    <div class="callout acc" style="margin-bottom:14px">This tab configures the approval workflow for each employee. By default, a request needs one approver. Add a 2nd level approver if a second approval is required. In-flight applications keep their original route.</div>
+    <div class="callout acc" style="margin-bottom:14px">Set the approver(s) for each employee's leave applications. Every application must be approved by the assigned 1st-level approver. If a second approval is required, assign a 2nd-level approver as well. Any changes to approver assignments will apply to new applications only. Applications already submitted will continue through their existing approval workflow.</div>
     <details style="margin:0 0 14px"${vp.teamsOpen ? " open" : ""} data-teams>
       <summary style="cursor:pointer"><b>Teams / departments (${db.departments.length})</b> — manage the list every employee picks from</summary>
       <div class="tablebox" style="margin-top:10px;max-width:560px"><table><thead><tr><th>Team name (edit to rename — updates every member)</th><th class="num">Members</th><th></th></tr></thead><tbody>
@@ -3143,7 +3143,7 @@ function offModal() {
 }
 function hrTypes() {
   return `<div class="card">
-    <div class="callout acc" style="margin-bottom:14px">Leave types are yours to configure. Tick here whether a type needs an attachment or allows half-days; use <b>Edit</b> to set its yearly amount and who's eligible. Changing that amount changes the total leave for all employee in one go. (Eg, if you change Sick Leave from 14 to 15, all employee will have 15 day in total. Please note that it is not applicable for AL and OIL.)</div>
+    <div class="callout acc" style="margin-bottom:14px">Configure leave types and their rules here. Select whether a leave type requires an attachment or allows half-day applications. Click <b>Edit</b> to change its yearly entitlement and eligibility settings.<br><br>Changing the yearly entitlement updates the total days granted to all employees for that leave type. For example, increasing Sick Leave from 14 to 15 days updates the entitlement to 15 days for all employees. This does not apply to Annual Leave (AL) or Off-in-Lieu (OIL), which are managed separately.</div>
     <div class="frow" style="margin-bottom:12px"><button class="btn" data-act="ltadd">+ Add leave type</button></div>
     <div class="tablebox"><table><thead><tr><th>Type</th><th class="num">Default days / year</th><th>Deducts balance?</th>
       <th style="text-align:center">Half-day allowed?${db.ltHalf ? colToggle("half") : ""}</th>
@@ -3446,7 +3446,7 @@ function ysExport(rows, year) {
 
 /* CSV download helper (Excel-safe: BOM + quoted fields) */
 /* What each kind of manual change is called, in words. ONE definition: this used to be
-   written out separately in the Amendment records tab and in its CSV export, so a kind
+   written out separately in the Leave History tab and in its CSV export, so a kind
    added later (v19's company-wide annual credit) appeared in neither and both printed the
    raw key `annual_bump` at the user. Anything unknown still falls back to the key rather
    than to a blank cell. */
@@ -3548,7 +3548,7 @@ function hrApply() {
   if (vp.forEmp && !emp(vp.forEmp)) { delete vp.forEmp; vp.form = null; }
   const who = vp.forEmp ? emp(vp.forEmp) : null;
   return `<div class="card">
-    <div class="callout acc" style="margin-bottom:14px">Enter leave for an employee manually it is for  for someone who called in sick, or handed you a form on paper. It is approved immediately, deduct from their balance, and update in the system.</div>
+    <div class="callout acc" style="margin-bottom:14px">HR can use this function to submit leave applications on behalf of employees, such as when an employee reports sick leave by phone or submits a paper leave form. Leave entries created through this function are automatically approved, deducted from the employee's leave balance, and recorded in the system.</div>
     ${who ? vApply() : `<div class="field" style="max-width:340px"><label>Employee<span class="req">*</span></label>
       <select data-f="forEmp">
         <option value="" disabled selected>— Select —</option>
@@ -3594,7 +3594,7 @@ function ledgerView() {
 function hrAmend() {
   const view2 = vp.amdView === "ledger" ? "ledger" : "amend";
   const tabBtn = (k, label) => `<button class="btn ${view2 === k ? "" : "sec"}" style="padding:6px 14px" data-act="amdview" data-v="${k}">${label}</button>`;
-  const head = `<div class="frow" style="gap:8px;margin:0 0 14px">${tabBtn("amend", "HR amendments")}${tabBtn("ledger", "Full ledger")}</div>`;
+  const head = `<div class="frow" style="gap:8px;margin:0 0 14px">${tabBtn("amend", "HR Adjustments")}${tabBtn("ledger", "Leave Balance Ledger")}</div>`;
   if (view2 === "ledger") return `<div class="card">${head}${ledgerView()}</div>`;
   const q = (vp.amdSearch || "").toLowerCase();
   const rows = (db.amendments || []).filter(a => !q ||
@@ -3603,7 +3603,7 @@ function hrAmend() {
     ltName(a.leave_type).toLowerCase().includes(q));
   return `<div class="card">${head}
     <div class="frow" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p class="meta" style="margin:0">Every change HR made by hand. Leave applications are in <b>All records</b>; this is everything else.</p>
+      <p class="meta" style="margin:0">Every change HR made by hand. Leave applications are in <b>Application Record</b>; this is everything else.</p>
       <span class="actions" style="margin:0">
         <input type="search" id="amdsearch" data-f="amdSearch" value="${esc(vp.amdSearch || "")}" placeholder="Name, leave type, reason…" style="max-width:240px">
         <button class="btn sec" data-act="amdcsv">⬇ Export CSV</button></span>
@@ -3625,7 +3625,7 @@ function hrBalances() {
   const emps = activeEmps();
   return `<div class="card">
     <div class="frow" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p class="meta" style="margin:0">Each cell shows <b>days left / entitled this year</b> (pending requests already reserved).${db.orgV16 ? ` <b>CF</b> is last year's carried days, kept separate: <b>AL</b> counts this year's own days only, and carried days are spent first, so a person's annual leave available is <b>CF + AL</b>.` : ""} Export for payroll or backup (e.g. to your NAS).</p>
+      <p class="meta" style="margin:0">Each leave balance is displayed as <b>remaining days / total entitlement for the year</b>, with pending leave requests already deducted from the remaining balance.${db.orgV16 ? `<br><br><b>CF (Carry Forward)</b> shows unused Annual Leave carried over from the previous year and is tracked separately from <b>AL (Annual Leave)</b>. Carried-forward days are automatically used first.` : ""}<br><br>Export leave balance records for payroll processing or backup purposes by clicking the <b>Export CSV</b> button.</p>
       <button class="btn sec" data-act="balcsv">⬇ Export CSV</button>
     </div>
     <div class="tablebox"><table class="nowrap"><thead><tr><th>Employee</th><th>Team</th>${db.orgV16 ? `<th class="num" title="Carry Forward — unused annual leave brought in from last year">CF</th>` : ""}${types.map(t => `<th class="num" title="${esc(t.en)}">${esc(ltShort(t))}</th>`).join("")}</tr></thead><tbody>
