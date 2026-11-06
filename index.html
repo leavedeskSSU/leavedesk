@@ -2775,13 +2775,21 @@ function cancelCard(a) {
       <button class="btn bad" data-act="cancelno" data-id="${a.id}">Reject</button>
     </div></div>`;
 }
+/* Is this application being looked at as a CANCELLATION rather than as a leave request?
+   A rejected step on an approved application can only be a declined cancellation:
+   rejecting the leave itself sets the application to "rejected". Shared by the detail
+   heading and the step list so they cannot disagree about the same row. */
+function isCancellationFlow(a) {
+  return a.status === "cancel_requested" || a.status === "cancelled" ||
+    (a.status === "approved" && (a.steps || []).some(s => s.status === "rejected"));
+}
 function stepsView(a) {
   if (!a.steps.length) return `<div class="steps"><div class="step ok"><span class="dot">✓</span><span>Approved automatically — No approver required</span></div></div>`;
   const live = a.status === "pending" || a.status === "cancel_requested";
   // While a cancellation is going through, the levels are acting on the CANCELLATION,
   // not on the leave, and HR asked for them to say so.
   const declinedCxl = a.status === "approved" && a.steps.some(s => s.status === "rejected");
-  const cxl = a.status === "cancel_requested" || a.status === "cancelled" || declinedCxl;
+  const cxl = isCancellationFlow(a);
   const doneWord = cxl ? "Cancellation Approved" : "Approved";
   const liveWord = cxl ? "Pending Approval" : "Pending";
   return `<div class="steps">${a.steps.map((s, i) => {
@@ -2812,7 +2820,7 @@ function detailModal(id) {
   const canCancel = own && a.status === "approved";
   return `<div class="modalback" data-act="closemodal">
     <div class="modal">
-      <div class="hd"><h3>${esc(t.en)} · ${esc(e.name)}</h3><span class="pill st-${a.status}">${stName(a.status)}</span>
+      <div class="hd"><h3>${esc(t.en)} ${isCancellationFlow(a) ? "Cancellation" : "Application"} · ${esc(e.name)}</h3><span class="pill st-${a.status}">${stName(a.status)}</span>
         <button class="iconbtn" data-act="closemodal" aria-label="Close">✕</button></div>
       <dl class="kv">
         <dt>Dates</dt><dd>${fmtRange(a.start, a.end)} · <b>${fmtD(a.days)}</b> working day${a.days === 1 ? "" : "s"}${halfSummary(a)}</dd>
