@@ -131,6 +131,13 @@ h3{font-size:15px;margin:0 0 10px}
 .st-returned{background:var(--warn-soft);color:var(--warn)}
 .st-withdrawn{background:var(--gray-soft);color:var(--muted)}
 .st-cancel_requested{background:var(--info-soft);color:var(--info)}
+/* What KIND of request this card is asking about. Without it an application and a
+   cancellation are the same card with the same chips, and the approver cannot tell which
+   they are agreeing to. */
+.kindchip{display:inline-block;background:var(--accent-soft);color:var(--accent);
+  border:1px solid var(--accent-line);border-radius:99px;padding:1px 10px;
+  font-size:12px;font-weight:700;vertical-align:middle;white-space:nowrap}
+.kindchip.cxl{background:var(--warn-soft,#fdf1dc);color:var(--warn,#8a5a00);border-color:var(--warn-line,#efd3a3)}
 /* My leave entitlement: HR asked for a bolder, larger heading row on this table only. */
 .enttbl thead th{font-weight:700;font-size:15px}
 /* "Entered by HR" on a row: a quiet grey tag, not a status pill -- it is a note about who
@@ -2718,7 +2725,7 @@ function approvalCard(a) {
   const conflicts = overlapConflicts(a);
   const chips = halfChips(a);
   return `<div class="card appcard">
-    <div class="hd"><b>${esc(e.name)}</b><span class="typechip">${esc(t.en)}</span><span class="pill st-pending">${a.steps.length > 1 ? `Level ${a.cur + 1}/${a.steps.length}` : "Pending"}</span></div>
+    <div class="hd"><b>${esc(e.name)}</b><span class="typechip">${esc(t.en)}</span><span class="kindchip">Application</span><span class="pill st-pending">${a.steps.length > 1 ? `Level ${a.cur + 1}/${a.steps.length}` : "Pending"}</span></div>
     <dl class="kv" style="margin:10px 0 4px">
       <dt>Dates</dt><dd><b>${fmtRange(a.start, a.end)}</b> · ${fmtD(a.days)} day${a.days === 1 ? "" : "s"}${a.backdated ? ` <span class="pill st-returned" style="font-size:11px">backdated</span>` : ""}</dd>
       ${chips ? `<dt>Half days</dt><dd>${chips}</dd>` : ""}
@@ -2737,7 +2744,7 @@ function approvalCard(a) {
     </div>` : ""}
     <div class="field" style="margin:8px 0 0"><textarea id="cm-${a.id}" rows="2" placeholder="Add a note (required if you return or reject this request)"></textarea></div>
     <div class="actions">
-      <button class="btn good" data-act="decide" data-id="${a.id}" data-d="approve" ${conflicts.length ? "disabled" : ""}>Approval</button>
+      <button class="btn good" data-act="decide" data-id="${a.id}" data-d="approve" ${conflicts.length ? "disabled" : ""}>Approve</button>
       <button class="btn warn" data-act="decide" data-id="${a.id}" data-d="return">Return</button>
       <button class="btn bad" data-act="decide" data-id="${a.id}" data-d="reject">Reject</button>
     </div></div>`;
@@ -2748,7 +2755,8 @@ function cancelCard(a) {
   const back = Number(a.days) || 0;
   return `<div class="card appcard">
     <div class="hd"><b>${esc(e.name)}</b><span class="typechip">${esc(t.en)}</span>
-      <span class="pill st-cancel_requested">${a.steps.length > 1 ? `Level ${a.cur + 1}/${a.steps.length}` : "Cancellation requested"}</span></div>
+      <span class="kindchip cxl">Cancellation request</span>
+      <span class="pill st-cancel_requested">${a.steps.length > 1 ? `Level ${a.cur + 1}/${a.steps.length}` : "Pending"}</span></div>
     <dl class="kv" style="margin:10px 0 4px">
       <dt>Dates</dt><dd><b>${fmtRange(a.start, a.end)}</b> · ${fmtD(a.days)} day${a.days === 1 ? "" : "s"}${a.backdated ? ` <span class="pill st-returned" style="font-size:11px">backdated</span>` : ""}</dd>
       ${chips ? `<dt>Half days</dt><dd>${chips}</dd>` : ""}
@@ -2762,8 +2770,8 @@ function cancelCard(a) {
     ${a.steps.length > 1 ? stepsView(a) : ""}
     <div class="field" style="margin:8px 0 0"><textarea id="cm-${a.id}" rows="2" placeholder="Add a note (required if you return or reject this request)"></textarea></div>
     <div class="actions">
-      <button class="btn good" data-act="cancelok" data-id="${a.id}">Approval</button>
-      <button class="btn bad" data-act="cancelno" data-id="${a.id}">Decline</button>
+      <button class="btn good" data-act="cancelok" data-id="${a.id}">Approve</button>
+      <button class="btn bad" data-act="cancelno" data-id="${a.id}">Reject</button>
     </div></div>`;
 }
 function stepsView(a) {
