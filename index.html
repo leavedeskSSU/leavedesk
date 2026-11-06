@@ -3585,11 +3585,20 @@ function ledgerView() {
         <td>${esc(empName(l.empId))}</td>
         <td>${esc(ltName(l.type))}</td>
         <td class="num"${l.delta < 0 ? ' style="color:var(--bad)"' : ' style="color:var(--good)"'}>${l.delta > 0 ? "+" : ""}${fmtD(l.delta)}</td>
-        <td class="meta">${esc(l.reason || "")}</td>
+        <td class="meta">${esc(l.reason || "")}${ledgerLeaveNote(l)}</td>
         <td class="meta">${esc(l.by ? empName(l.by) : "—")}</td></tr>`).join("")}
     </tbody></table></div>
     ${rows.length > 500 ? `<p class="meta" style="margin-top:8px">Showing the 500 most recent of ${rows.length}. Search to narrow it, or export the lot.</p>` : ""}`
     : `<div class="empty">${q ? "Nothing matches your search." : "No entries yet."}</div>`}`;
+}
+/* Which leave a ledger row came from. Two refunds for two different leaves were
+   indistinguishable: the time prints to the minute, HR's were 15 seconds apart, and the
+   days and the reason were identical -- so the screen showed the same row twice and HR
+   reasonably asked whether refunds were being duplicated. They were not. This says which
+   leave each row is for. Used by BOTH ledger tables, which is the only reason they agree. */
+function ledgerLeaveNote(l) {
+  const a = l && l.refApp ? db.applications.find(x => x.id === l.refApp) : null;
+  return a ? ` <span class="meta">· leave of ${esc(fmtRange(a.start, a.end))}</span>` : "";
 }
 function hrAmend() {
   const view2 = vp.amdView === "ledger" ? "ledger" : "amend";
@@ -3718,7 +3727,7 @@ function hrLedger() {
     <div class="tablebox"><table><thead><tr>${H("ts", "Time", "num")}${H("emp", "Employee")}${H("type", "Type")}${H("delta", "±Days", "num")}${H("reason", "Reason")}${H("by", "By")}</tr></thead><tbody>
     ${led.map(l => `<tr><td class="num meta">${fmtTs(l.ts)}</td><td>${esc((emp(l.empId) || {}).name || "—")}</td><td>${esc((lt(l.type) || {}).en || l.type)}</td>
       <td class="num" style="color:${l.delta >= 0 ? "var(--good)" : "var(--bad)"};font-weight:600">${l.delta > 0 ? "+" : ""}${fmtD(l.delta)}</td>
-      <td>${esc(reasonEn(l.reason))}</td><td>${esc((emp(l.by) || {}).name || "system")}</td></tr>`).join("")}
+      <td>${esc(reasonEn(l.reason))}${ledgerLeaveNote(l)}</td><td>${esc((emp(l.by) || {}).name || "system")}</td></tr>`).join("")}
     </tbody></table></div></div></div>`;
 }
 
