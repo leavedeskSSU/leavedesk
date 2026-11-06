@@ -2779,15 +2779,20 @@ function stepsView(a) {
   const live = a.status === "pending" || a.status === "cancel_requested";
   // While a cancellation is going through, the levels are acting on the CANCELLATION,
   // not on the leave, and HR asked for them to say so.
-  const cxl = a.status === "cancel_requested" || a.status === "cancelled";
+  const declinedCxl = a.status === "approved" && a.steps.some(s => s.status === "rejected");
+  const cxl = a.status === "cancel_requested" || a.status === "cancelled" || declinedCxl;
   const doneWord = cxl ? "Cancellation Approved" : "Approved";
   const liveWord = cxl ? "Pending Approval" : "Pending";
   return `<div class="steps">${a.steps.map((s, i) => {
     const cls = s.status === "approved" ? "ok" : (s.status === "rejected" || s.status === "returned") ? "no" : (i === a.cur && live) ? "now" : "off";
     const icon = s.status === "approved" ? "✓" : (s.status === "rejected" ? "✕" : (s.status === "returned" ? "↩" : s.order));
     const tail = s.status === "approved" ? doneWord + (s.comment ? ": " + esc(s.comment) : "") :
-      s.status === "rejected" ? "Rejected: " + esc(s.comment) :
-      s.status === "returned" ? "Returned: " + esc(s.comment) :
+      s.status === "rejected" ? (declinedCxl ? "Cancellation Declined" : "Rejected")
+                                + (s.comment ? ": " + esc(s.comment) : "") :
+      s.status === "returned" ? "Returned" + (s.comment ? ": " + esc(s.comment) : "") :
+      // A level that was never reached, on a request that is over, is not waiting for
+      // anything -- saying so was the other half of this confusion.
+      declinedCxl ? "Not required" :
       (i === a.cur && live) ? liveWord : "Waiting for previous level";
     return `<div class="step ${cls}"><span class="dot">${icon}</span><span>Level ${s.order} · ${esc(empName(s.approverId))} — ${tail}</span></div>`;
   }).join("")}</div>`;
