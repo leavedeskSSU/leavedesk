@@ -581,11 +581,11 @@ function numText(v, allowNeg) {
 /* DB action codes → display strings the history/timeline renderers expect */
 const mapAction = c => ({
   submitted: "Submitted", resubmitted: "Resubmitted",
-  step_approved: "Approved (a level)", step_approved_overlap_ack: "Approved (overlap acknowledged)",
+  step_approved: "Approved", step_approved_overlap_ack: "Approved (overlap acknowledged)",
   approved: "Approved", approved_overlap_ack: "Approved (overlap acknowledged)",
   rejected: "Rejected", returned: "Returned", withdrawn: "Withdrawn", auto_approved: "Auto-approved",
   cancel_requested: "Cancellation requested", cancelled: "Cancellation confirmed", cancel_denied: "Cancellation declined",
-  cancel_step_approved: "Cancellation approved (a level)",
+  cancel_step_approved: "Cancellation approved",
   auto_cancelled: "Cancelled automatically"
 }[c] || c);
 /* The timeline prints "<action> — <comment>", and the database writes a fixed sentence for
@@ -1704,6 +1704,7 @@ function myDecisions(u) {
   // resubmission) so history survives amend-and-resubmit cycles.
   const isDecision = act => act.startsWith("Approved") ||
     act === "Rejected" || act === "Returned" ||
+    act === "Cancellation approved" ||
     act === "Cancellation confirmed" || act === "Cancellation declined";
   return db.events
     .filter(v => v.actor === u.id && isDecision(v.action))
@@ -2709,7 +2710,7 @@ function vApprovals() {
           <td>${esc(empName(h.a.empId))}</td><td>${esc(ltName(h.a.type))}</td>
           <td class="num">${fmtRange(h.a.start, h.a.end)}</td>
           <td class="num">${fmtD(h.a.days)}</td>
-          <td><span class="pill ${h.decision.startsWith("Approved") || h.decision === "Cancellation confirmed" ? "st-approved" : h.decision === "Rejected" ? "st-rejected" : "st-returned"}">${h.decision}</span></td>
+          <td><span class="pill ${/^(Approved|Cancellation (approved|confirmed))/.test(h.decision) ? "st-approved" : /^(Rejected|Cancellation declined)/.test(h.decision) ? "st-rejected" : "st-returned"}">${h.decision}</span></td>
           <td class="meta">${esc(h.comment || "—")}</td>
           <td><span class="pill st-${h.a.status}">${stName(h.a.status)}</span></td>
           <td class="num meta">${fmtTs(h.ts)}</td></tr>`).join("")}
