@@ -2769,7 +2769,7 @@ function cancelCard(a) {
       <dt>Submitted</dt><dd class="meta">${fmtDate(iso(new Date(a.createdAt)))}</dd>
     </dl>
     ${a.steps.length > 1 ? stepsView(a) : ""}
-    <div class="field" style="margin:8px 0 0"><textarea id="cm-${a.id}" rows="2" placeholder="Add a note (required if you return or reject this request)"></textarea></div>
+    <div class="field" style="margin:8px 0 0"><textarea id="cm-${a.id}" rows="2" placeholder="Add a note (required if you reject this request)"></textarea></div>
     <div class="actions">
       <button class="btn good" data-act="cancelok" data-id="${a.id}">Approve</button>
       <button class="btn bad" data-act="cancelno" data-id="${a.id}">Reject</button>
