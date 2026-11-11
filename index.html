@@ -2348,7 +2348,7 @@ function vProfile() {
           <td class="num">${t.noDeduct ? "—" : fmtD(left)}</td></tr>`; }).join("")}
         ${carryRow()}
       </tbody></table></div>
-      <p class="meta" style="margin-top:8px"><b>Taken</b> is leave you applied for and had approved, this year. Cancelling gives the days straight back.</p>
+      <p class="meta" style="margin-top:8px">Your leave entitlement for the current year. <b>Total</b> shows your annual entitlement, <b>Taken</b> shows approved leave days used, and <b>Left</b> shows your remaining balance. If an approved leave application is cancelled, the deducted days are automatically returned to your balance.</p>
     </div>`;
 }
 
@@ -3319,7 +3319,7 @@ function hrSettings() {
   const dow = p => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(p + "T00:00:00").getDay()];
   return `<div class="stack">
   <div class="card"><h3>Company details</h3>
-    <div class="callout acc" style="margin:10px 0 14px"><b>Nothing about your company is hard-coded.</b> Set these once; every form uses them. Teams are managed in the Employees tab, leave allowances in the Leave types tab.</div>
+    <div class="callout acc" style="margin:10px 0 14px">Set your company's name and email domain here. The company name appears throughout the system, while the email domain is used to automatically generate employee email addresses when adding new employees. Manage teams under the <b>Employees</b> tab and leave entitlements under the <b>Leave Types</b> tab.</div>
     <div class="frow">
       <div class="field" style="max-width:260px"><label>Company name<span class="req">*</span></label><input type="text" id="org-company" data-f="org.company" value="${esc(oPick("company"))}">
         <span class="hint">Shown in the top bar and everywhere else</span></div>
