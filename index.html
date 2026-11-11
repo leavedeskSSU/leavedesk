@@ -2457,7 +2457,7 @@ function vApply() {
       : (me.approver1 ? "On submit, an email goes to your approver: " + chainText(me) : "No approver required — your leave is recorded automatically, and HR is notified for the record.")}</p>
     ${onBehalf ? `<div class="field" style="max-width:340px"><label>Employee<span class="req">*</span></label>
       <select data-f="forEmp">${activeEmps().map(e => `<option value="${e.id}" ${e.id === who.id ? "selected" : ""}>${esc(e.name)}${e.dept ? " · " + esc(e.dept) : ""}</option>`).join("")}</select>
-      <span class="hint">Everyone currently employed. Add someone and they appear here; offboard them and they go.</span></div>` : ""}
+      <span class="hint">Select an active employee to submit a leave application on their behalf. New employees will appear here once added to the system, while employees who have been offboarded will no longer be listed.</span></div>` : ""}
     ${editing ? `<div class="callout warn" style="margin-bottom:14px">This application was returned: “${esc(lastReturnComment(editing))}”. Amend it and resubmit for approval.</div>` : ""}
     <div class="card" style="max-width:640px;margin:0 auto">
       <div class="field"><label>Leave type</label>
@@ -3554,7 +3554,7 @@ function hrApply() {
         <option value="" disabled selected>— Select —</option>
         ${list.map(e => `<option value="${e.id}">${esc(e.name)}${e.dept ? " · " + esc(e.dept) : ""}</option>`).join("")}
       </select>
-      <span class="hint">Everyone currently employed. Add someone and they appear here; offboard them and they go.</span></div>
+      <span class="hint">Select an active employee to submit a leave application on their behalf. New employees will appear here once added to the system, while employees who have been offboarded will no longer be listed.</span></div>
       <div class="empty">Choose an employee to enter leave for.</div>`}
   </div>`;
 }
@@ -3574,7 +3574,7 @@ function ledgerView() {
                  ltName(l.type).toLowerCase().includes(q))
     .sort((a, b) => b.ts - a.ts);
   return `<div class="frow" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p class="meta" style="margin:0">Every entry that makes up a balance — a balance is always the sum of its entries. Yearly credits, leave taken, refunds, off-in-lieu, expiry, forfeits and offboarding settlements.</p>
+      <p class="meta" style="margin:0">A complete history of how each employee's leave balance is built up and used. Every credit, deduction, refund, expiry and forfeiture is recorded here, so you can trace exactly how the current balance was calculated.</p>
       <span class="actions" style="margin:0">
         <input type="search" id="ledsearch" data-f="ledSearch" value="${esc(vp.ledSearch || "")}" placeholder="Name, leave type, reason…" style="max-width:240px">
         <button class="btn sec" data-act="ledcsv">⬇ Export CSV</button></span>
@@ -3612,7 +3612,7 @@ function hrAmend() {
     ltName(a.leave_type).toLowerCase().includes(q));
   return `<div class="card">${head}
     <div class="frow" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p class="meta" style="margin:0">Every change HR made by hand. Leave applications are in <b>Application Record</b>; this is everything else.</p>
+      <p class="meta" style="margin:0">Records all manual changes made by HR to employee leave balances. Leave applications and their related transactions are recorded separately under <b>Application Record</b>.</p>
       <span class="actions" style="margin:0">
         <input type="search" id="amdsearch" data-f="amdSearch" value="${esc(vp.amdSearch || "")}" placeholder="Name, leave type, reason…" style="max-width:240px">
         <button class="btn sec" data-act="amdcsv">⬇ Export CSV</button></span>
