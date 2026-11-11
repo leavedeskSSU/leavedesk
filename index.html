@@ -3238,9 +3238,23 @@ function carryExpiryField() {
       </select>
     </div>
     <span class="hint">${on
-      ? `Days carried into ${nextYear} must be used by <b>${fmtDateY(on)}</b>. It repeats every year — set it once.`
+      ? `Carried-forward Annual Leave must be used by the selected date each year, or it will
+         expire. This date repeats automatically every year.`
       : `Carried days <b>never expire</b>. Pick a month to give them a deadline.`
-      } How many days each person may carry is set per employee, on the Employees tab.</span></div>`;
+      } Each employee's carry-forward limit is set individually under the <b>Employees</b> tab.</span></div>`;
+}
+
+/* The nag for next year's public holidays. Both the year and the count are read off the
+   data on every render — nothing here is written for one particular year, so in Sep 2027
+   it asks for 2028 by itself. phMissingYear() decides WHETHER it shows; this is only how
+   it reads. */
+function phMissingWarning() {
+  const y = phMissingYear();
+  const n = db.publicHolidays.filter(p => p.startsWith(y)).length;
+  return `<div class="callout warn" style="margin:6px 0 10px">⚠️ <b>${y} public holidays have not
+    been added yet (${n} date${n === 1 ? "" : "s"} recorded).</b> Please add the public holidays for
+    ${y} so employees can submit leave applications with the correct holiday dates. Click
+    <b>➕ Add Whole Year Holiday</b> below to add them all at once.</div>`;
 }
 
 function oilExpiryField() {
@@ -3260,11 +3274,12 @@ function oilExpiryField() {
       </select>
     </div>
     <span class="hint">${on
-      ? `Off-in-lieu must be used by <b>${fmtDateY(on)}</b>. It repeats every year — set it once.
-         <b>The whole balance</b> goes on that day, however recently it was earned — that is
-         different from carried annual leave, where only last year's leftover expires.`
+      ? `Set a recurring annual expiry date for Off-in-Lieu (OIL). For example, if 10 October is
+         selected, all employees' unused OIL balances will expire on 10 October each year,
+         regardless of when the days were earned. This applies to the entire OIL balance, not
+         just the previous year's unused days.`
       : `Off-in-lieu <b>never expires</b>. Pick a month to give it a deadline.`
-      } Off-in-lieu is earned by working, so it is credited per employee on the Employees tab.</span></div>`;
+      } OIL credits are managed individually under the <b>Employees</b> tab.</span></div>`;
 }
 
 /* Email notifications. Everything about sending lives in the Edge Function; the only
@@ -3367,7 +3382,7 @@ function hrSettings() {
       <span>Public holidays — ${phRows.length} date${phRows.length === 1 ? "" : "s"} in ${phY}</span>
       <button class="btn ghost" style="padding:2px 9px" data-act="phyear" data-y="${phNext}" ${phNext ? "" : "disabled"} title="${phNext || "No later year"}">▶</button>
       <span class="phsearch" title="Type a year to go to it">🔍<input type="text" data-f="phYearSearch" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(vp.phYearSearch || "")}" placeholder="${phY}" aria-label="Go to year"></span></h3>
-    ${phMissingYear() ? `<div class="callout warn" style="margin:6px 0 10px">⚠️ <b>${phMissingYear()} public holidays are not entered yet</b> — ${db.publicHolidays.filter(p => p.startsWith(phMissingYear())).length} date(s) on file. Staff can't book ${phMissingYear()} leave correctly until they are. Use <b>➕ Add whole year holiday</b> below.</div>` : ""}
+    ${phMissingYear() ? phMissingWarning() : ""}
     <p class="meta" style="margin:4px 0 10px">Manually manage public holiday dates below. Use ◀ ▶ to switch years. For annual updates, refer to the <a href="https://www.mom.gov.sg/employment-practices/public-holidays" target="_blank" rel="noopener">MOM Public Holidays List</a>.</p>
     <div class="callout acc" style="margin:0 0 10px">💡 <b>Annual Maintenance:</b> Update next year's dates every January using MOM's published list.</div>
     <p class="hint" style="margin:0 0 10px">Holiday changes <b>save immediately</b> — they are not part of <b>Save changes</b>, and <b>Discard</b> will not bring a removed date back.</p>
